@@ -1,0 +1,22 @@
+{
+  "_note": "Edit this file in GitHub web UI to assign villages/meters to people. After saving, Vercel rebuilds the site automatically (~1 minute). Each person can be assigned multiple villages, and each village can have multiple meters.",
+  "assignments": [
+    {
+      "person": "Ravi Kumar",
+      "phone": "+91-9XXXXXXXXX",
+      "email": "ravi@example.com",
+      "meters": [
+        { "village": "Sangrur", "serial": "WM10024088531" },
+        { "village": "Sangrur", "serial": "WM10024088532" }
+      ]
+    },
+    {
+      "person": "Priya Singh",
+      "phone": "+91-9XXXXXXXXX",
+      "email": "priya@example.com",
+      "meters": [
+        { "village": "Patiala", "serial": "WM10024088600" }
+      ]
+    }
+  ]
+}
