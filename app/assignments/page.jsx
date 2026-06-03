@@ -1,43 +1,240 @@
-// Assignments page - read-only view of the assignments.json file
-import assignmentsData from '@/data/assignments.json';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function AssignmentsPage() {
-  const list = assignmentsData.assignments || [];
+  const router = useRouter();
+  const [assignments, setAssignments] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [aRes, adminRes] = await Promise.all([
+        fetch('/api/assignments'),
+        fetch('/api/auth/check'),
+      ]);
+      const aData = await aRes.json();
+      if (!aRes.ok) throw new Error(aData.error || 'Failed to load');
+      setAssignments(aData.assignments || []);
+      const adminData = await adminRes.json();
+      setIsAdmin(Boolean(adminData.admin));
+      setDirty(false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/assignments', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignments }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setMessage('Saved ✓');
+      setDirty(false);
+      setTimeout(() => setMessage(null), 2500);
+      router.refresh();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function update(newList) {
+    setAssignments(newList);
+    setDirty(true);
+  }
+
+  function addPerson() {
+    update([...assignments, { person: 'New Person', phone: '', email: '', meters: [] }]);
+  }
+
+  function updatePerson(i, field, value) {
+    const copy = [...assignments];
+    copy[i] = { ...copy[i], [field]: value };
+    update(copy);
+  }
+
+  function deletePerson(i) {
+    if (!confirm(`Delete ${assignments[i].person}?`)) return;
+    update(assignments.filter((_, idx) => idx !== i));
+  }
+
+  function addMeter(personIdx) {
+    const copy = [...assignments];
+    copy[personIdx] = {
+      ...copy[personIdx],
+      meters: [...(copy[personIdx].meters || []), { village: '', serial: '' }],
+    };
+    update(copy);
+  }
+
+  function updateMeter(personIdx, meterIdx, field, value) {
+    const copy = [...assignments];
+    const meters = [...copy[personIdx].meters];
+    meters[meterIdx] = { ...meters[meterIdx], [field]: value };
+    copy[personIdx] = { ...copy[personIdx], meters };
+    update(copy);
+  }
+
+  function deleteMeter(personIdx, meterIdx) {
+    const copy = [...assignments];
+    copy[personIdx] = {
+      ...copy[personIdx],
+      meters: copy[personIdx].meters.filter((_, idx) => idx !== meterIdx),
+    };
+    update(copy);
+  }
+
+  if (loading) return <p className="text-slate-500">Loading…</p>;
 
   return (
     <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900">
-        <p className="font-semibold mb-1">How to update assignments</p>
-        <ol className="list-decimal pl-5 space-y-1">
-          <li>Open your GitHub repo in the browser.</li>
-          <li>Navigate to <code>data/assignments.json</code>.</li>
-          <li>Click the pencil ✏️ icon to edit, change the JSON, and commit.</li>
-          <li>Vercel will auto-redeploy in ~1 minute. Refresh this page.</li>
-        </ol>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-xl font-semibold">Assignments</h2>
+        {isAdmin && (
+          <button
+            onClick={save}
+            disabled={!dirty || saving}
+            className={`px-4 py-2 rounded text-sm font-medium ${
+              dirty && !saving ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+            }`}
+          >
+            {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+          </button>
+        )}
       </div>
 
-      <h2 className="text-lg font-semibold">{list.length} people assigned</h2>
+      {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2 text-sm">{message}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm">{error}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {list.map((a, i) => (
-          <div key={i} className="bg-white rounded shadow p-4">
-            <div className="font-semibold">{a.person}</div>
-            {a.phone && <div className="text-sm text-slate-600">📞 {a.phone}</div>}
-            {a.email && <div className="text-sm text-slate-600">✉️ {a.email}</div>}
-            <div className="mt-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Meters ({a.meters?.length || 0})</div>
-              <ul className="text-sm space-y-1">
-                {(a.meters || []).map((m, j) => (
-                  <li key={j} className="flex justify-between border-b border-slate-100 py-1">
-                    <span>{m.village}</span>
-                    <span className="font-mono text-xs">{m.serial}</span>
-                  </li>
+      {!isAdmin && (
+        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900 flex items-center justify-between gap-3">
+          <span>👀 View-only mode. <a href="/login" className="underline font-medium">Log in</a> to edit.</span>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {assignments.map((person, i) => (
+          <div key={i} className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="p-3 sm:p-4 border-b border-slate-100 bg-slate-50">
+              {isAdmin ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    value={person.person}
+                    onChange={(e) => updatePerson(i, 'person', e.target.value)}
+                    placeholder="Name"
+                    className="px-3 py-2 border border-slate-300 rounded text-sm font-medium"
+                  />
+                  <input
+                    value={person.phone || ''}
+                    onChange={(e) => updatePerson(i, 'phone', e.target.value)}
+                    placeholder="Phone"
+                    className="px-3 py-2 border border-slate-300 rounded text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      value={person.email || ''}
+                      onChange={(e) => updatePerson(i, 'email', e.target.value)}
+                      placeholder="Email"
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm"
+                    />
+                    <button
+                      onClick={() => deletePerson(i)}
+                      className="px-3 py-2 text-red-600 hover:bg-red-50 rounded text-sm"
+                      title="Delete person"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="font-semibold">{person.person}</div>
+                  <div className="text-xs text-slate-600 mt-0.5">
+                    {[person.phone, person.email].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 sm:p-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Meters ({person.meters?.length || 0})</div>
+              <div className="space-y-2">
+                {(person.meters || []).map((m, j) => (
+                  <div key={j} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                    {isAdmin ? (
+                      <>
+                        <input
+                          value={m.village}
+                          onChange={(e) => updateMeter(i, j, 'village', e.target.value)}
+                          placeholder="Village"
+                          className="px-2 py-1.5 border border-slate-200 rounded text-sm"
+                        />
+                        <input
+                          value={m.serial}
+                          onChange={(e) => updateMeter(i, j, 'serial', e.target.value)}
+                          placeholder="Meter serial"
+                          className="px-2 py-1.5 border border-slate-200 rounded text-sm font-mono"
+                        />
+                        <button
+                          onClick={() => deleteMeter(i, j)}
+                          className="text-red-600 hover:bg-red-50 rounded px-2 py-1.5 text-sm"
+                        >
+                          ✕
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm">{m.village}</div>
+                        <div className="text-sm font-mono">{m.serial}</div>
+                        <div></div>
+                      </>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
+              {isAdmin && (
+                <button
+                  onClick={() => addMeter(i)}
+                  className="mt-3 text-sm text-brand-600 hover:text-brand-700 font-medium"
+                >
+                  + Add meter
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
+
+      {isAdmin && (
+        <button
+          onClick={addPerson}
+          className="w-full bg-white border-2 border-dashed border-slate-300 rounded-lg py-4 text-slate-600 hover:border-brand-500 hover:text-brand-600 font-medium"
+        >
+          + Add person
+        </button>
+      )}
     </div>
   );
 }
