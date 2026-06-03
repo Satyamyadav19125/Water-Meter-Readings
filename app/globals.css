@@ -2,4 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body { background: #f8fafc; color: #0f172a; }
+html, body {
+  background: #f1f5f9;
+  color: #0f172a;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html { scroll-behavior: smooth; }
+
+.scrollbar-thin::-webkit-scrollbar { height: 6px; width: 6px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+@media (max-width: 640px) {
+  button, a { min-height: 36px; }
+}
