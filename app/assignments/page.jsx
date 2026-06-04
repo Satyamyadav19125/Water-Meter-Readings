@@ -6,29 +6,34 @@ import { useRouter } from 'next/navigation';
 export default function AssignmentsPage() {
   const router = useRouter();
   const [assignments, setAssignments] = useState([]);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
 
-  useEffect(() => {
-    load();
-  }, []);
+  const isAdmin = user?.role === 'admin';
+
+  useEffect(() => { load(); }, []);
 
   async function load() {
     setLoading(true);
     try {
-      const [aRes, adminRes] = await Promise.all([
+      const [aRes, uRes] = await Promise.all([
         fetch('/api/assignments'),
         fetch('/api/auth/check'),
       ]);
       const aData = await aRes.json();
       if (!aRes.ok) throw new Error(aData.error || 'Failed to load');
-      setAssignments(aData.assignments || []);
-      const adminData = await adminRes.json();
-      setIsAdmin(Boolean(adminData.admin));
+      const uData = await uRes.json();
+      setUser(uData.user || null);
+
+      let list = aData.assignments || [];
+      if (uData.user?.role === 'user') {
+        list = list.filter((a) => a.person === uData.user.name);
+      }
+      setAssignments(list);
       setDirty(false);
     } catch (e) {
       setError(e.message);
@@ -66,7 +71,7 @@ export default function AssignmentsPage() {
   }
 
   function addPerson() {
-    update([...assignments, { person: 'New Person', phone: '', email: '', meters: [] }]);
+    update([...assignments, { person: 'New Person', phone: '', email: '', password: '', meters: [] }]);
   }
 
   function updatePerson(i, field, value) {
@@ -110,8 +115,10 @@ export default function AssignmentsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xl font-semibold">Assignments</h2>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-xl font-semibold">
+          {isAdmin ? 'Assignments' : 'My Meters'}
+        </h2>
         {isAdmin && (
           <button
             onClick={save}
@@ -128,9 +135,16 @@ export default function AssignmentsPage() {
       {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2 text-sm">{message}</div>}
       {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm">{error}</div>}
 
-      {!isAdmin && (
-        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900 flex items-center justify-between gap-3">
-          <span>👀 View-only mode. <a href="/login" className="underline font-medium">Log in</a> to edit.</span>
+      {!user && (
+        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900">
+          <a href="/login" className="underline font-medium">Log in</a> to view or manage assignments.
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
+          <strong>Tip:</strong> The <em>Name</em> field must EXACTLY match the surveyor's "M Name" entered in the Kobo form, so their personal data filter works.
+          The <em>Password</em> is what they will type to log in.
         </div>
       )}
 
@@ -139,32 +153,52 @@ export default function AssignmentsPage() {
           <div key={i} className="bg-white rounded-lg shadow overflow-hidden">
             <div className="p-3 sm:p-4 border-b border-slate-100 bg-slate-50">
               {isAdmin ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input
-                    value={person.person}
-                    onChange={(e) => updatePerson(i, 'person', e.target.value)}
-                    placeholder="Name"
-                    className="px-3 py-2 border border-slate-300 rounded text-sm font-medium"
-                  />
-                  <input
-                    value={person.phone || ''}
-                    onChange={(e) => updatePerson(i, 'phone', e.target.value)}
-                    placeholder="Phone"
-                    className="px-3 py-2 border border-slate-300 rounded text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <input
-                      value={person.email || ''}
-                      onChange={(e) => updatePerson(i, 'email', e.target.value)}
-                      placeholder="Email"
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm"
-                    />
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wide text-slate-500">Name</label>
+                      <input
+                        value={person.person}
+                        onChange={(e) => updatePerson(i, 'person', e.target.value)}
+                        placeholder="Name (matches Kobo M Name)"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wide text-slate-500">Login password</label>
+                      <input
+                        value={person.password || ''}
+                        onChange={(e) => updatePerson(i, 'password', e.target.value)}
+                        placeholder="Login password"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wide text-slate-500">Phone</label>
+                      <input
+                        value={person.phone || ''}
+                        onChange={(e) => updatePerson(i, 'phone', e.target.value)}
+                        placeholder="Phone"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wide text-slate-500">Email</label>
+                      <input
+                        value={person.email || ''}
+                        onChange={(e) => updatePerson(i, 'email', e.target.value)}
+                        placeholder="Email"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm"
+                      />
+                    </div>
                     <button
                       onClick={() => deletePerson(i)}
                       className="px-3 py-2 text-red-600 hover:bg-red-50 rounded text-sm"
                       title="Delete person"
                     >
-                      🗑️
+                      🗑️ Delete
                     </button>
                   </div>
                 </div>
@@ -213,6 +247,9 @@ export default function AssignmentsPage() {
                     )}
                   </div>
                 ))}
+                {(!person.meters || person.meters.length === 0) && (
+                  <div className="text-xs text-slate-400 italic">No meters yet</div>
+                )}
               </div>
               {isAdmin && (
                 <button
