@@ -12,9 +12,15 @@ const links = [
   { href: '/assignments', label: 'Assignments', icon: '👥' },
 ];
 
-export default function MobileNav({ isAdmin }) {
+export default function MobileNav({ user }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+
+  const isAdmin = user?.role === 'admin';
+  const isUser = user?.role === 'user';
+  const loggedIn = !!user;
+
+  const badge = isAdmin ? 'Admin ✓' : isUser ? user.name : null;
 
   return (
     <>
@@ -35,8 +41,10 @@ export default function MobileNav({ isAdmin }) {
                 {l.label}
               </Link>
             ))}
-            {isAdmin ? (
-              <button onClick={doLogout} className="px-3 py-1.5 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-sm">Admin ✓</button>
+            {loggedIn ? (
+              <button onClick={doLogout} className="px-3 py-1.5 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-sm">
+                {badge}
+              </button>
             ) : (
               <Link href="/login" className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20">Login</Link>
             )}
@@ -58,6 +66,11 @@ export default function MobileNav({ isAdmin }) {
         <div className="md:hidden fixed inset-0 z-20 bg-black/40" onClick={() => setOpen(false)}>
           <div className="absolute top-14 right-0 w-64 bg-white shadow-xl rounded-bl-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <nav className="flex flex-col">
+              {loggedIn && (
+                <div className="px-4 py-2 bg-brand-50 text-brand-900 text-xs border-b">
+                  Logged in as <strong>{badge}</strong>
+                </div>
+              )}
               {links.map((l) => (
                 <Link
                   key={l.href}
@@ -70,11 +83,13 @@ export default function MobileNav({ isAdmin }) {
                 </Link>
               ))}
               <div className="p-3 bg-slate-50">
-                {isAdmin ? (
-                  <button onClick={doLogout} className="w-full px-3 py-2 rounded bg-emerald-100 text-emerald-900 text-sm">Logout (Admin)</button>
+                {loggedIn ? (
+                  <button onClick={doLogout} className="w-full px-3 py-2 rounded bg-emerald-100 text-emerald-900 text-sm">
+                    Logout
+                  </button>
                 ) : (
                   <Link href="/login" onClick={() => setOpen(false)} className="block text-center w-full px-3 py-2 rounded bg-brand-600 text-white text-sm">
-                    Admin Login
+                    Login
                   </Link>
                 )}
               </div>
