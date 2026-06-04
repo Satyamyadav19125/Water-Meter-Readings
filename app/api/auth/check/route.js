@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { isAdmin } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth';
 
 export async function GET() {
-  const admin = await isAdmin();
-  return NextResponse.json({ admin });
+  const user = await getCurrentUser();
+  return NextResponse.json({ user });
 }
