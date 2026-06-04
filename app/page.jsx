@@ -1,6 +1,8 @@
 import { fetchSubmissions } from '@/lib/kobo';
 import { computeWeeklyStatus, deriveMeters, daysRemaining } from '@/lib/weekly';
 import { getAssignments, isDbConfigured } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
+import { filterSubmissionsForUser, filterAssignmentsForUser } from '@/lib/filter';
 
 export const revalidate = 60;
 
@@ -8,15 +10,20 @@ export default async function HomePage() {
   let submissions = [];
   let assignments = [];
   let error = null;
+  let currentUser = null;
 
   try {
-    [submissions, assignments] = await Promise.all([
+    [submissions, assignments, currentUser] = await Promise.all([
       fetchSubmissions(),
       isDbConfigured() ? getAssignments() : Promise.resolve([]),
+      getCurrentUser(),
     ]);
   } catch (e) {
     error = e.message;
   }
+
+  submissions = await filterSubmissionsForUser(submissions);
+  assignments = await filterAssignmentsForUser(assignments);
 
   if (error) return <ErrorBox message={error} />;
 
@@ -36,6 +43,12 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-4">
+      {currentUser?.role === 'user' && (
+        <div className="bg-brand-50 border border-brand-200 rounded p-3 text-sm text-brand-900">
+          Showing your data only — <strong>{currentUser.name}</strong>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
         <Stat label="Days left" value={remaining} color="bg-slate-200" />
         <Stat label="Done" value={done} color="bg-emerald-100" />
@@ -45,7 +58,7 @@ export default async function HomePage() {
 
       {!isDbConfigured() && (
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-900">
-          <strong>Setup needed:</strong> Add UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Vercel environment variables.
+          <strong>Setup needed:</strong> Add MONGODB_URI in Vercel environment variables.
         </div>
       )}
 
@@ -55,7 +68,9 @@ export default async function HomePage() {
         ))}
         {status.length === 0 && (
           <div className="bg-white rounded-lg shadow p-6 text-center text-slate-500">
-            No meters configured yet. Go to <a href="/assignments" className="text-brand-600 underline">Assignments</a> to add some.
+            {currentUser?.role === 'user'
+              ? 'No meters assigned to you yet. Ask the admin to add some.'
+              : <>No meters configured yet. Go to <a href="/assignments" className="text-brand-600 underline">Assignments</a> to add some.</>}
           </div>
         )}
       </div>
@@ -122,6 +137,7 @@ function ErrorBox({ message }) {
     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
       <p className="font-semibold mb-1">Could not load data from Kobo</p>
       <p className="text-sm">{message}</p>
+      <p className="text-xs mt-2">Check that <code>KOBO_API_TOKEN</code> in Vercel is correct (no leading/trailing spaces).</p>
     </div>
   );
 }
