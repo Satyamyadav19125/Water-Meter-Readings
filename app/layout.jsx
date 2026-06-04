@@ -1,6 +1,6 @@
 import './globals.css';
 import MobileNav from '@/components/MobileNav';
-import { isAdmin } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth';
 
 export const metadata = {
   title: 'Water Meter Dashboard',
@@ -11,9 +11,7 @@ export const metadata = {
     statusBarStyle: 'black-translucent',
     title: 'WaterMeter',
   },
-  formatDetection: {
-    telephone: false,
-  },
+  formatDetection: { telephone: false },
 };
 
 export const viewport = {
@@ -25,7 +23,7 @@ export const viewport = {
 };
 
 export default async function RootLayout({ children }) {
-  const admin = await isAdmin();
+  const user = await getCurrentUser();
   return (
     <html lang="en">
       <head>
@@ -34,7 +32,7 @@ export default async function RootLayout({ children }) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body className="min-h-screen">
-        <MobileNav isAdmin={admin} />
+        <MobileNav user={user} />
         <main className="max-w-7xl mx-auto p-3 sm:p-4 pb-20">{children}</main>
       </body>
     </html>
