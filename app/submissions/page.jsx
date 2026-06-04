@@ -1,5 +1,7 @@
 import { fetchSubmissions } from '@/lib/kobo';
 import { detectRedFlags } from '@/lib/redflags';
+import { filterSubmissionsForUser } from '@/lib/filter';
+import { getCurrentUser } from '@/lib/auth';
 import SubmissionList from '@/components/SubmissionList';
 
 export const revalidate = 60;
@@ -12,7 +14,15 @@ export default async function SubmissionsPage({ searchParams }) {
   } catch (e) {
     error = e.message;
   }
-  if (error) return <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800"><p className="font-semibold mb-1">Error</p><p className="text-sm">{error}</p></div>;
+  if (error) return (
+    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+      <p className="font-semibold mb-1">Error</p>
+      <p className="text-sm">{error}</p>
+    </div>
+  );
+
+  submissions = await filterSubmissionsForUser(submissions);
+  const currentUser = await getCurrentUser();
 
   const flags = detectRedFlags(submissions);
   const flagCount = Object.keys(flags).length;
@@ -32,7 +42,10 @@ export default async function SubmissionsPage({ searchParams }) {
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-semibold">Submissions</h2>
-        <p className="text-sm text-slate-500">{submissions.length} total · {flagCount} flagged</p>
+        <p className="text-sm text-slate-500">
+          {submissions.length} total · {flagCount} flagged
+          {currentUser?.role === 'user' && <> · yours only</>}
+        </p>
       </div>
 
       <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
