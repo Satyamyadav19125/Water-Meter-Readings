@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const links = [
+const baseLinks = [
   { href: '/', label: 'Pending', icon: '📅' },
   { href: '/submissions', label: 'Submissions', icon: '📋' },
   { href: '/usage', label: 'Usage', icon: '💧' },
@@ -19,8 +19,9 @@ export default function MobileNav({ user }) {
   const isAdmin = user?.role === 'admin';
   const isUser = user?.role === 'user';
   const loggedIn = !!user;
-
   const badge = isAdmin ? 'Admin ✓' : isUser ? user.name : null;
+
+  const links = isAdmin ? [...baseLinks, { href: '/debug', label: 'Debug', icon: '🔧' }] : baseLinks;
 
   return (
     <>
@@ -42,9 +43,7 @@ export default function MobileNav({ user }) {
               </Link>
             ))}
             {loggedIn ? (
-              <button onClick={doLogout} className="px-3 py-1.5 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-sm">
-                {badge}
-              </button>
+              <button onClick={doLogout} className="px-3 py-1.5 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-sm">{badge}</button>
             ) : (
               <Link href="/login" className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20">Login</Link>
             )}
@@ -84,13 +83,9 @@ export default function MobileNav({ user }) {
               ))}
               <div className="p-3 bg-slate-50">
                 {loggedIn ? (
-                  <button onClick={doLogout} className="w-full px-3 py-2 rounded bg-emerald-100 text-emerald-900 text-sm">
-                    Logout
-                  </button>
+                  <button onClick={doLogout} className="w-full px-3 py-2 rounded bg-emerald-100 text-emerald-900 text-sm">Logout</button>
                 ) : (
-                  <Link href="/login" onClick={() => setOpen(false)} className="block text-center w-full px-3 py-2 rounded bg-brand-600 text-white text-sm">
-                    Login
-                  </Link>
+                  <Link href="/login" onClick={() => setOpen(false)} className="block text-center w-full px-3 py-2 rounded bg-brand-600 text-white text-sm">Login</Link>
                 )}
               </div>
             </nav>
