@@ -1,10 +1,11 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import FilterBar from '@/components/FilterBar';
 import ExportButton from '@/components/ExportButton';
 
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
 
 const HIDDEN_KEYS = new Set([
   '_id', '_uuid', '_xform_id_string', '_attachments', '_status',
@@ -14,20 +15,21 @@ const HIDDEN_KEYS = new Set([
 ]);
 
 export default async function KoboViewPage({ searchParams }) {
+  const sp = (await searchParams) || {};
   let submissions = await fetchSubmissions();
   submissions = await filterSubmissionsForUser(submissions);
-  submissions = applyUrlFilters(submissions, searchParams);
+  submissions = applyUrlFilters(submissions, sp);
 
   const sorted = [...submissions].sort(
     (a, b) => new Date(b._submission_time).getTime() - new Date(a._submission_time).getTime()
   );
 
-  const selectedId = searchParams?.id ? Number(searchParams.id) : null;
+  const selectedId = sp.id ? Number(sp.id) : null;
   const submission = selectedId ? sorted.find((s) => s._id === selectedId) : null;
 
   const listParams = new URLSearchParams();
-  for (const [k, v] of Object.entries(searchParams || {})) {
-    if (k !== 'id' && v) listParams.set(k, String(v));
+  for (const [k, v] of Object.entries(sp || {})) {
+    if (k !== 'id' && v) listParams.set(k, Array.isArray(v) ? v[0] : String(v));
   }
   const backHref = `/kobo-view${listParams.toString() ? '?' + listParams.toString() : ''}`;
 
@@ -36,12 +38,16 @@ export default async function KoboViewPage({ searchParams }) {
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-xl font-semibold">Kobo View</h2>
-          <p className="text-sm text-slate-500">{sorted.length} submissions</p>
+          <p className="text-sm text-slate-500">{sorted.length} submissions · tap a row to expand, tap again to close</p>
         </div>
-        <ExportButton />
+        <Suspense fallback={<div className="h-9 w-24 bg-slate-200 rounded animate-pulse" />}>
+          <ExportButton />
+        </Suspense>
       </div>
 
-      <FilterBar />
+      <Suspense fallback={<div className="h-12 bg-slate-100 rounded-lg animate-pulse" />}>
+        <FilterBar />
+      </Suspense>
 
       {sorted.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-6 text-center text-slate-500">No submissions match the current filter.</div>
@@ -55,18 +61,25 @@ export default async function KoboViewPage({ searchParams }) {
             <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
               <ul className="divide-y divide-slate-100">
                 {sorted.map((s) => {
+                  const isOpen = s._id === submission?._id;
                   const linkParams = new URLSearchParams(listParams);
-                  linkParams.set('id', String(s._id));
+                  if (!isOpen) linkParams.set('id', String(s._id));
+                  const href = `/kobo-view${linkParams.toString() ? '?' + linkParams.toString() : ''}`;
                   return (
                     <li key={s._id}>
                       <Link
-                        href={`/kobo-view?${linkParams.toString()}`}
+                        href={href}
                         scroll={false}
-                        className={`block px-3 py-3 hover:bg-slate-50 active:bg-slate-100 ${s._id === submission?._id ? 'bg-brand-50 border-l-4 border-brand-500' : ''}`}
+                        className={`block px-3 py-3 hover:bg-slate-50 active:bg-slate-100 ${isOpen ? 'bg-brand-50 border-l-4 border-brand-500' : ''}`}
                       >
-                        <div className="text-sm font-medium">#{s._id}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          {new Date(s._submission_time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium">#{s._id}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {new Date(s._submission_time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                            </div>
+                          </div>
+                          {isOpen && <span className="text-xs text-brand-600 shrink-0">tap to close</span>}
                         </div>
                       </Link>
                     </li>
@@ -76,7 +89,7 @@ export default async function KoboViewPage({ searchParams }) {
             </div>
           </aside>
 
-          <section className={`space-y-4 mt-0 lg:mt-0 ${!submission ? 'hidden lg:block' : ''}`}>
+          <section className={`space-y-4 ${!submission ? 'hidden lg:block' : ''}`}>
             {submission ? (
               <>
                 <Link
@@ -91,12 +104,19 @@ export default async function KoboViewPage({ searchParams }) {
                 </Link>
 
                 <div className="bg-white rounded-lg shadow">
-                  <div className="p-4 sm:p-6 border-b border-slate-100">
-                    <div className="text-xs uppercase tracking-wide text-slate-500">Submission</div>
-                    <h2 className="text-xl font-semibold">#{submission._id}</h2>
-                    <div className="text-sm text-slate-500 mt-1">
-                      {new Date(submission._submission_time).toLocaleString()}
+                  <div className="p-4 sm:p-6 border-b border-slate-100 flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-slate-500">Submission</div>
+                      <h2 className="text-xl font-semibold">#{submission._id}</h2>
+                      <div className="text-sm text-slate-500 mt-1">
+                        {new Date(submission._submission_time).toLocaleString()}
+                      </div>
                     </div>
+                    <Link href={backHref} scroll={false} className="text-slate-400 hover:text-slate-700" aria-label="Close">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M6 18L18 6M6 6l12 12"/>
+                      </svg>
+                    </Link>
                   </div>
 
                   <div className="p-4 sm:p-6">
