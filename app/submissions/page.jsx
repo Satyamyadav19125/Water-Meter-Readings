@@ -1,16 +1,20 @@
+import { Suspense } from 'react';
 import { fetchSubmissions } from '@/lib/kobo';
 import { detectRedFlags } from '@/lib/redflags';
-import { filterSubmissionsForUser } from '@/lib/filter';
+import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { getCurrentUser } from '@/lib/auth';
 import SubmissionList from '@/components/SubmissionList';
+import FilterBar from '@/components/FilterBar';
+import ExportButton from '@/components/ExportButton';
 
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
 
 export default async function SubmissionsPage({ searchParams }) {
-  let submissions = [];
+  const sp = (await searchParams) || {};
+  let allSubmissions = [];
   let error = null;
   try {
-    submissions = await fetchSubmissions();
+    allSubmissions = await fetchSubmissions();
   } catch (e) {
     error = e.message;
   }
@@ -18,48 +22,69 @@ export default async function SubmissionsPage({ searchParams }) {
     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
       <p className="font-semibold mb-1">Error</p>
       <p className="text-sm">{error}</p>
+      <p className="text-xs mt-2">Run <a href="/debug" className="underline">/debug</a> for diagnostics.</p>
     </div>
   );
 
-  submissions = await filterSubmissionsForUser(submissions);
+  allSubmissions = await filterSubmissionsForUser(allSubmissions);
   const currentUser = await getCurrentUser();
 
-  const flags = detectRedFlags(submissions);
-  const flagCount = Object.keys(flags).length;
-  const filter = searchParams?.filter || 'all';
+  const filtered0 = applyUrlFilters(allSubmissions, sp);
+  const allFlags = detectRedFlags(allSubmissions);
 
-  const sorted = [...submissions].sort(
-    (a, b) => new Date(b._submission_time).getTime() - new Date(a._submission_time).getTime()
-  );
-
-  const filtered = sorted.filter((s) => {
-    if (filter === 'flagged') return !!flags[s._id];
-    if (filter === 'clean') return !flags[s._id];
+  const flagFilter = sp.flag || 'all';
+  const filtered = filtered0.filter((s) => {
+    if (flagFilter === 'flagged') return !!allFlags[s._id];
+    if (flagFilter === 'clean') return !allFlags[s._id];
     return true;
   });
 
+  const sorted = [...filtered].sort(
+    (a, b) => new Date(b._submission_time).getTime() - new Date(a._submission_time).getTime()
+  );
+
+  const filteredFlagCount = sorted.filter((s) => allFlags[s._id]).length;
+
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold">Submissions</h2>
-        <p className="text-sm text-slate-500">
-          {submissions.length} total · {flagCount} flagged
-          {currentUser?.role === 'user' && <> · yours only</>}
-        </p>
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div>
+          <h2 className="text-xl font-semibold">Submissions</h2>
+          <p className="text-sm text-slate-500">
+            {sorted.length} shown · {filteredFlagCount} flagged
+            {currentUser?.role === 'user' && <> · yours only</>}
+          </p>
+        </div>
+        <Suspense fallback={<div className="h-9 w-24 bg-slate-200 rounded animate-pulse" />}>
+          <ExportButton />
+        </Suspense>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
-        <FilterChip href="/submissions?filter=all" active={filter === 'all'}>All ({submissions.length})</FilterChip>
-        <FilterChip href="/submissions?filter=clean" active={filter === 'clean'}>✓ Clean ({submissions.length - flagCount})</FilterChip>
-        <FilterChip href="/submissions?filter=flagged" active={filter === 'flagged'} danger>🚩 Flagged ({flagCount})</FilterChip>
+      <Suspense fallback={<div className="h-12 bg-slate-100 rounded-lg animate-pulse" />}>
+        <FilterBar />
+      </Suspense>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        <FlagChip name="all" current={flagFilter} sp={sp}>All</FlagChip>
+        <FlagChip name="clean" current={flagFilter} sp={sp}>✓ Clean</FlagChip>
+        <FlagChip name="flagged" current={flagFilter} sp={sp} danger>🚩 Flagged ({Object.keys(allFlags).length})</FlagChip>
       </div>
 
-      <SubmissionList submissions={filtered} flags={flags} />
+      <SubmissionList submissions={sorted} flags={allFlags} allSubmissions={allSubmissions} />
     </div>
   );
 }
 
-function FilterChip({ href, active, danger, children }) {
+function FlagChip({ name, current, sp, danger, children }) {
+  const active = (current || 'all') === name;
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp || {})) {
+    if (k !== 'flag' && v) {
+      params.set(k, Array.isArray(v) ? v[0] : String(v));
+    }
+  }
+  if (name !== 'all') params.set('flag', name);
+  const href = `/submissions${params.toString() ? '?' + params.toString() : ''}`;
   return (
     <a href={href} className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border transition ${
       active ? (danger ? 'bg-red-600 text-white border-red-600' : 'bg-brand-600 text-white border-brand-600') : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
