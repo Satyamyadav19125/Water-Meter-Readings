@@ -2,7 +2,7 @@ import { fetchSubmissions } from '@/lib/kobo';
 import { isAdmin } from '@/lib/auth';
 import Link from 'next/link';
 
-export const revalidate = 30;
+export const dynamic = 'force-dynamic';
 
 export default async function DebugPage() {
   const admin = await isAdmin();
