@@ -1,31 +1,63 @@
+import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { computeWeeklyStatus, deriveMeters, daysRemaining } from '@/lib/weekly';
-import { getAssignments, isDbConfigured } from '@/lib/db';
+import { detectRedFlags } from '@/lib/redflags';
+import { getAssignments, isDbConfigured, getSettings } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { filterSubmissionsForUser, filterAssignmentsForUser } from '@/lib/filter';
+import { getField } from '@/lib/fieldMap';
+import { BarChart, LineChart, DonutChart } from '@/components/SimpleCharts';
+import Landing from '@/components/Landing';
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) return <Landing />;
+
   let submissions = [];
   let assignments = [];
   let error = null;
-  let currentUser = null;
+  let settings;
 
   try {
-    [submissions, assignments, currentUser] = await Promise.all([
+    [submissions, assignments, settings] = await Promise.all([
       fetchSubmissions(),
       isDbConfigured() ? getAssignments() : Promise.resolve([]),
-      getCurrentUser(),
+      getSettings(),
     ]);
-  } catch (e) {
-    error = e.message;
-  }
+  } catch (e) { error = e.message; }
+
+  if (error) return (
+    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+      <p className="font-semibold mb-1">Could not load data from Kobo</p>
+      <p className="text-sm">{error}</p>
+      <p className="text-xs mt-2">
+        Visit <Link href="/debug" className="underline">/debug</Link> for details · or <Link href="/settings" className="underline">/settings</Link> to switch the active form.
+      </p>
+    </div>
+  );
 
   submissions = await filterSubmissionsForUser(submissions);
   assignments = await filterAssignmentsForUser(assignments);
 
-  if (error) return <ErrorBox message={error} />;
+  const flags = detectRedFlags(submissions, { enabled: settings?.redFlags });
+  const flaggedTotal = Object.keys(flags).length;
+  const cleanTotal = submissions.length - flaggedTotal;
+
+  const villageCounts = {};
+  const surveyorCounts = {};
+  for (const s of submissions) {
+    const v = getField(s, 'village') || 'Unknown';
+    const sv = getField(s, 'surveyor') || 'Unknown';
+    villageCounts[v] = (villageCounts[v] || 0) + 1;
+    surveyorCounts[sv] = (surveyorCounts[sv] || 0) + 1;
+  }
+  const uniqueVillages = Object.keys(villageCounts).length;
+  const uniqueSurveyors = Object.keys(surveyorCounts).length;
+
+  const villageBars = Object.entries(villageCounts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 8);
+  const surveyorBars = Object.entries(surveyorCounts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
 
   const meters = deriveMeters(assignments, submissions);
   const status = computeWeeklyStatus(meters, submissions);
@@ -34,126 +66,134 @@ export default async function HomePage() {
   const partial = status.filter((s) => s.status === 'partial').length;
   const pending = status.filter((s) => s.status === 'pending').length;
 
-  const byVillage = {};
-  for (const s of status) {
-    const v = s.village || 'Unknown';
-    if (!byVillage[v]) byVillage[v] = [];
-    byVillage[v].push(s);
-  }
-  const villageNames = Object.keys(byVillage).sort();
+  const cleanVsFlagged = [
+    { label: 'Clean', value: cleanTotal, color: '#22c55e' },
+    { label: 'Flagged', value: flaggedTotal, color: '#ef4444' },
+  ];
 
   return (
     <div className="space-y-4">
-      {currentUser?.role === 'user' && (
-        <div className="bg-brand-50 border border-brand-200 rounded p-3 text-sm text-brand-900">
-          Showing your villages only — <strong>{currentUser.name}</strong>
+      <div className="bg-gradient-to-br from-brand-50 to-field-50 border border-brand-100 rounded-xl p-4 sm:p-5 flex items-start gap-3">
+        <div className="text-3xl shrink-0">💧</div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-bold">Welcome, {currentUser.name}!</h2>
+          <p className="text-sm text-slate-600">
+            {currentUser.role === 'admin'
+              ? 'Full admin access. Manage assignments, settings, and view all data.'
+              : `You're assigned to ${currentUser.villages?.length || 0} village${currentUser.villages?.length === 1 ? '' : 's'}.`}
+          </p>
         </div>
-      )}
+        <Link href={currentUser.role === 'admin' ? '/settings' : '/profile'}
+          className="hidden sm:inline-flex items-center gap-1 text-xs bg-white px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50">
+          ⚙️ {currentUser.role === 'admin' ? 'Settings' : 'Profile'}
+        </Link>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-        <Stat label="Days left in week" value={remaining} color="bg-slate-200" />
-        <Stat label="Done (2/2)" value={done} color="bg-emerald-100" />
-        <Stat label="Partial (1/2)" value={partial} color="bg-amber-100" />
-        <Stat label="Pending (0/2)" value={pending} color="bg-rose-100" />
+        <Kpi label="Total submissions" value={submissions.length.toLocaleString()} color="bg-brand-50 text-brand-900" icon="📋" />
+        <Kpi label="Clean readings" value={cleanTotal.toLocaleString()} color="bg-field-50 text-field-900" icon="✓" />
+        <Kpi label="🚩 Flagged" value={flaggedTotal.toLocaleString()} color={flaggedTotal > 0 ? 'bg-red-50 text-red-900' : 'bg-slate-50 text-slate-700'} icon="" />
+        <Kpi label="Quality rate" value={submissions.length > 0 ? `${Math.round((cleanTotal / submissions.length) * 100)}%` : '—'} color="bg-emerald-50 text-emerald-900" icon="📊" />
+        <Kpi label="Villages" value={uniqueVillages} color="bg-amber-50 text-amber-900" icon="🏘️" />
+        <Kpi label="Active surveyors" value={uniqueSurveyors} color="bg-violet-50 text-violet-900" icon="👤" />
+        <Kpi label="This week" value={`${done}/${meters.length} done`} color="bg-sky-50 text-sky-900" icon="📅" />
+        <Kpi label="Days left in week" value={remaining} color="bg-slate-100 text-slate-900" icon="⏳" />
       </div>
 
-      {!isDbConfigured() && (
-        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-900">
-          <strong>Setup needed:</strong> Add MONGODB_URI in Vercel environment variables.
-        </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <QuickLink href="/submissions" icon="📋" label="Submissions" />
+        <QuickLink href="/usage" icon="💧" label="Water usage" />
+        <QuickLink href="/map" icon="🗺️" label="Map" />
+        <QuickLink href="/kobo-view" icon="🪞" label="Kobo data" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card title="Quality at a glance" subtitle={`${cleanTotal} clean · ${flaggedTotal} flagged · ${submissions.length} total`}>
+          <DonutChart data={cleanVsFlagged} emptyText="No submissions yet" />
+        </Card>
+        <Card title="Submissions per surveyor" subtitle={`${uniqueSurveyors} surveyors`}>
+          <VerticalBars data={surveyorBars} color="#7c3aed" />
+        </Card>
+      </div>
+
+      <Card title="Submissions per village" subtitle="Top 8">
+        <BarChart data={villageBars} color="#0284c7" emptyText="No villages yet" />
+      </Card>
+
+      {status.length > 0 && (
+        <Card title="This week's progress" subtitle={`${done} done · ${partial} partial · ${pending} pending · ${remaining} days left`}>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <MiniStat label="Done" value={done} color="bg-field-100 text-field-900" />
+            <MiniStat label="Partial" value={partial} color="bg-amber-100 text-amber-900" />
+            <MiniStat label="Pending" value={pending} color="bg-rose-100 text-rose-900" />
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            <Link href="/submissions" className="text-brand-600 hover:underline">View all submissions →</Link>
+          </p>
+        </Card>
       )}
+    </div>
+  );
+}
 
-      <div className="space-y-3">
-        {villageNames.map((v) => (
-          <VillageCard key={v} village={v} meters={byVillage[v]} />
-        ))}
-        {status.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-6 text-center text-slate-500">
-            {currentUser?.role === 'user'
-              ? 'No villages assigned to you yet. Ask the admin to add some.'
-              : <>No data yet. Go to <a href="/assignments" className="text-brand-600 underline">Assignments</a> to assign villages.</>}
-          </div>
-        )}
+function Kpi({ label, value, color, icon }) {
+  return (
+    <div className={`rounded-xl p-3 ${color} shadow-sm`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-2xl font-bold leading-tight tabular-nums">{value}</div>
+        {icon && <span className="text-lg opacity-50">{icon}</span>}
       </div>
+      <div className="text-[11px] opacity-80">{label}</div>
     </div>
   );
 }
 
-function VillageCard({ village, meters }) {
-  const pending = meters.filter((m) => m.status !== 'done').length;
-  const assignedTo = meters[0]?.assignedTo || 'Unassigned';
+function QuickLink({ href, icon, label }) {
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-4 py-3 bg-slate-50 border-b flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="font-semibold flex items-center gap-2">
-            <span className="text-slate-400">🏘️</span>
-            <span className="truncate">{village}</span>
-          </div>
-          <div className="text-xs text-slate-500 mt-0.5">
-            {meters.length} meters · assigned to {assignedTo}
-          </div>
-        </div>
-        <span className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${pending === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-          {pending === 0 ? 'All done' : `${pending} pending`}
-        </span>
+    <Link href={href} className="bg-white rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition flex items-center gap-2 text-sm">
+      <span className="text-xl">{icon}</span>
+      <span className="font-medium">{label}</span>
+    </Link>
+  );
+}
+
+function Card({ title, subtitle, children }) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5">
+      <div className="mb-3">
+        <h3 className="font-semibold text-base">{title}</h3>
+        {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
       </div>
-      <ul className="divide-y divide-slate-100">
-        {meters.map((m) => (
-          <li key={m.serial} className="px-4 py-2.5 flex items-center gap-3">
-            <StatusPill status={m.status} />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs text-slate-500 font-mono truncate">{m.serial}</div>
-              {m.lastReadingDate && (
-                <div className="text-[11px] text-slate-400">
-                  Last reading: {new Date(m.lastReadingDate).toLocaleDateString()}
-                  {m.daysSinceLast !== null && m.daysSinceLast > 0 && (
-                    <> ({m.daysSinceLast}d ago)</>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="text-sm font-semibold tabular-nums text-slate-700">
-              {m.submittedCount}/{m.required}
-            </div>
-          </li>
-        ))}
-      </ul>
+      {children}
     </div>
   );
 }
 
-function Stat({ label, value, color }) {
+function MiniStat({ label, value, color }) {
   return (
-    <div className={`rounded-lg p-3 ${color}`}>
-      <div className="text-2xl sm:text-3xl font-bold leading-tight">{value}</div>
-      <div className="text-xs text-slate-700 mt-0.5">{label}</div>
+    <div className={`rounded-lg p-3 text-center ${color}`}>
+      <div className="text-2xl font-bold tabular-nums">{value}</div>
+      <div className="text-[11px]">{label}</div>
     </div>
   );
 }
 
-function StatusPill({ status }) {
-  const styles = {
-    done: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
-    partial: 'bg-amber-100 text-amber-800 ring-amber-200',
-    pending: 'bg-rose-100 text-rose-800 ring-rose-200',
-  };
-  const labels = { done: '✓', partial: '½', pending: '○' };
+function VerticalBars({ data, color = '#0284c7' }) {
+  if (!data || data.length === 0) return <div className="text-sm text-slate-400 text-center py-8">No data</div>;
+  const max = Math.max(...data.map((d) => d.value), 1);
   return (
-    <span className={`w-7 h-7 inline-flex items-center justify-center text-xs font-bold rounded-full ring-1 ${styles[status]}`}>
-      {labels[status]}
-    </span>
-  );
-}
-
-function ErrorBox({ message }) {
-  return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
-      <p className="font-semibold mb-1">Could not load data from Kobo</p>
-      <p className="text-sm">{message}</p>
-      <p className="text-xs mt-2">
-        Visit <a href="/debug" className="underline">/debug</a> to see what's failing (admin only).
-      </p>
-    </div>
+    <ul className="space-y-2">
+      {data.map((d, i) => (
+        <li key={i}>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="font-medium text-slate-700 truncate pr-2">{d.label}</span>
+            <span className="text-slate-500 tabular-nums shrink-0">{d.value}</span>
+          </div>
+          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${(d.value / max) * 100}%`, background: color }}/>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
