@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser } from '@/lib/filter';
@@ -6,10 +7,11 @@ import { detectRedFlags, groupBySerial } from '@/lib/redflags';
 import SubmissionList from '@/components/SubmissionList';
 import ExportButton from '@/components/ExportButton';
 
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
 
 export default async function MeterPage({ params }) {
-  const serial = decodeURIComponent(params.serial);
+  const resolvedParams = await params;
+  const serial = decodeURIComponent(resolvedParams.serial);
 
   let submissions = await fetchSubmissions();
   submissions = await filterSubmissionsForUser(submissions);
@@ -44,7 +46,9 @@ export default async function MeterPage({ params }) {
           <h1 className="text-xl font-semibold font-mono">{serial}</h1>
           {village && <div className="text-sm text-slate-600">📍 {village}</div>}
         </div>
-        <ExportButton extraParams={{ meter: serial }} />
+        <Suspense fallback={<div className="h-9 w-24 bg-slate-200 rounded animate-pulse" />}>
+          <ExportButton extraParams={{ meter: serial }} />
+        </Suspense>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
