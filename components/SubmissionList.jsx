@@ -1,85 +1,149 @@
-import { fetchSubmissions } from '@/lib/kobo';
-import { detectRedFlags } from '@/lib/redflags';
-import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
-import { getCurrentUser } from '@/lib/auth';
-import SubmissionList from '@/components/SubmissionList';
-import FilterBar from '@/components/FilterBar';
-import ExportButton from '@/components/ExportButton';
+'use client';
 
-export const revalidate = 60;
+import { useState } from 'react';
+import { getField } from '@/lib/fieldMap';
 
-export default async function SubmissionsPage({ searchParams }) {
-  let allSubmissions = [];
-  let error = null;
-  try {
-    allSubmissions = await fetchSubmissions();
-  } catch (e) {
-    error = e.message;
+export default function SubmissionList({ submissions, flags, allSubmissions }) {
+  const [openId, setOpenId] = useState(null);
+
+  const byId = {};
+  for (const s of (allSubmissions || submissions)) byId[s._id] = s;
+
+  if (submissions.length === 0) {
+    return <p className="text-slate-500 bg-white rounded-lg shadow p-6 text-center">No submissions match the current filter.</p>;
   }
-  if (error) return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
-      <p className="font-semibold mb-1">Error</p>
-      <p className="text-sm">{error}</p>
-      <p className="text-xs mt-2">Run <a href="/debug" className="underline">/debug</a> for diagnostics.</p>
-    </div>
-  );
-
-  allSubmissions = await filterSubmissionsForUser(allSubmissions);
-  const currentUser = await getCurrentUser();
-
-  const filtered0 = applyUrlFilters(allSubmissions, searchParams);
-  const allFlags = detectRedFlags(allSubmissions);
-
-  const flagFilter = searchParams?.flag || 'all';
-  const filtered = filtered0.filter((s) => {
-    if (flagFilter === 'flagged') return !!allFlags[s._id];
-    if (flagFilter === 'clean') return !allFlags[s._id];
-    return true;
-  });
-
-  const sorted = [...filtered].sort(
-    (a, b) => new Date(b._submission_time).getTime() - new Date(a._submission_time).getTime()
-  );
-
-  const filteredFlagCount = sorted.filter((s) => allFlags[s._id]).length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-2 flex-wrap">
-        <div>
-          <h2 className="text-xl font-semibold">Submissions</h2>
-          <p className="text-sm text-slate-500">
-            {sorted.length} shown · {filteredFlagCount} flagged
-            {currentUser?.role === 'user' && <> · yours only</>}
-          </p>
-        </div>
-        <ExportButton />
-      </div>
-
-      <FilterBar />
-
-      <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
-        <FlagChip name="all" current={flagFilter} sp={searchParams}>All</FlagChip>
-        <FlagChip name="clean" current={flagFilter} sp={searchParams}>✓ Clean</FlagChip>
-        <FlagChip name="flagged" current={flagFilter} sp={searchParams} danger>🚩 Flagged ({Object.keys(allFlags).length})</FlagChip>
-      </div>
-
-      <SubmissionList submissions={sorted} flags={allFlags} allSubmissions={allSubmissions} />
+    <div className="space-y-2">
+      {submissions.map((s) => {
+        const isOpen = openId === s._id;
+        const flag = flags[s._id];
+        return (
+          <SubmissionCard
+            key={s._id}
+            submission={s}
+            isOpen={isOpen}
+            flag={flag}
+            onToggle={() => setOpenId(isOpen ? null : s._id)}
+            byId={byId}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function FlagChip({ name, current, sp, danger, children }) {
-  const active = (current || 'all') === name;
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp || {})) {
-    if (k !== 'flag' && v) params.set(k, String(v));
-  }
-  if (name !== 'all') params.set('flag', name);
-  const href = `/submissions${params.toString() ? '?' + params.toString() : ''}`;
+function SubmissionCard({ submission, isOpen, flag, onToggle, byId }) {
+  const s = submission;
+  const village = getField(s, 'village');
+  const serial = getField(s, 'serial');
+  const endR = getField(s, 'endReading');
+  const surveyor = getField(s, 'surveyor');
+  const time = new Date(s._submission_time);
+  const cardClass = flag ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200';
+
   return (
-    <a href={href} className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border transition ${
-      active ? (danger ? 'bg-red-600 text-white border-red-600' : 'bg-brand-600 text-white border-brand-600') : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
-    }`}>{children}</a>
+    <div className={`rounded-lg shadow-sm border overflow-hidden ${cardClass}`}>
+      <button onClick={onToggle} className="w-full text-left p-3 sm:p-4 flex items-center gap-3 hover:bg-black/[0.02]">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            {flag && <span className="text-red-600">🚩</span>}
+            <span className="font-medium truncate">{village || '—'}</span>
+            {surveyor && <span className="text-xs text-slate-500 truncate">· {surveyor}</span>}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">
+            <span className="font-mono">{serial || '—'}</span>
+            <span>{time.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-base font-bold tabular-nums">{endR ?? '—'}</div>
+          <div className="text-xs text-slate-500">reading</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      {isOpen && <SubmissionDetail submission={s} flag={flag} byId={byId} />}
+    </div>
   );
+}
+
+function SubmissionDetail({ submission, flag, byId }) {
+  const compareTarget = flag?.flags.find((f) => f.previousSubmissionId)?.previousSubmissionId;
+  const previous = compareTarget ? byId[compareTarget] : null;
+
+  return (
+    <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4">
+      {flag && (
+        <div className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-900">
+          <div className="font-semibold mb-1.5 flex items-center gap-2">🚩 Red flag</div>
+          <ul className="list-disc pl-5 text-sm space-y-1">
+            {flag.flags.map((f, i) => <li key={i}><strong className="capitalize">{(f.type || '').replace(/_/g, ' ')}:</strong> {f.message}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {previous ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <SubmissionPanel label="Previous reading" submission={previous} highlight="emerald" />
+          <SubmissionPanel label="Current reading (flagged)" submission={submission} highlight="red" />
+        </div>
+      ) : (
+        <SubmissionPanel label="Form data" submission={submission} />
+      )}
+    </div>
+  );
+}
+
+function SubmissionPanel({ label, submission, highlight }) {
+  const photos = submission._attachments || [];
+  const borderClass = highlight === 'red'
+    ? 'border-red-300 bg-red-50'
+    : highlight === 'emerald'
+      ? 'border-emerald-300 bg-emerald-50'
+      : 'border-slate-200 bg-slate-50';
+
+  return (
+    <div className={`rounded-lg border ${borderClass} p-3`}>
+      <div className="text-xs uppercase tracking-wide text-slate-600 font-semibold mb-2">{label}</div>
+      <div className="text-xs text-slate-500 mb-2">
+        #{submission._id} · {new Date(submission._submission_time).toLocaleString()}
+      </div>
+      <dl className="space-y-1 mb-3">
+        {Object.entries(submission)
+          .filter(([k]) => !k.startsWith('_') && !k.includes('/uuid') && !k.includes('/instanceID'))
+          .slice(0, 10)
+          .map(([k, v]) => (
+            <div key={k} className="grid grid-cols-[110px_1fr] gap-2 text-xs">
+              <dt className="text-slate-500 truncate">{prettyKey(k)}</dt>
+              <dd className="text-slate-900 break-all">{renderVal(v)}</dd>
+            </div>
+          ))}
+      </dl>
+      {photos.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {photos.slice(0, 2).map((a) => (
+            <a key={a.id} href={`/api/photo?url=${encodeURIComponent(a.download_url)}`} target="_blank" rel="noreferrer" className="block">
+              <img
+                src={`/api/photo?url=${encodeURIComponent(a.download_small_url || a.download_url)}`}
+                alt={a.filename}
+                className="w-full h-36 object-cover rounded border border-slate-200"
+              />
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function prettyKey(k) {
+  return k.replace(/^group_\d+\//, '').replace(/_/g, ' ');
+}
+
+function renderVal(v) {
+  if (v === null || v === undefined || v === '') return <em className="text-slate-400">empty</em>;
+  if (typeof v === 'object') return <code className="text-xs">{JSON.stringify(v)}</code>;
+  return String(v);
 }
