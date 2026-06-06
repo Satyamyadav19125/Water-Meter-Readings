@@ -1,7 +1,10 @@
+import { Suspense } from 'react';
 import { fetchSubmissions } from '@/lib/kobo';
-import { filterSubmissionsForUser } from '@/lib/filter';
+import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
 import MapView from '@/components/MapView';
+import FilterBar from '@/components/FilterBar';
+import MapExportButton from '@/components/MapExportButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +23,8 @@ function parseLocation(val) {
   return null;
 }
 
-export default async function MapPage() {
+export default async function MapPage({ searchParams }) {
+  const sp = (await searchParams) || {};
   let submissions = [];
   let error = null;
   try { submissions = await fetchSubmissions(); }
@@ -29,6 +33,7 @@ export default async function MapPage() {
   if (error) return <div className="bg-red-50 border border-red-200 rounded p-4 text-red-800 text-sm">{error}</div>;
 
   submissions = await filterSubmissionsForUser(submissions);
+  submissions = applyUrlFilters(submissions, sp);
 
   const points = [];
   for (const s of submissions) {
@@ -48,22 +53,29 @@ export default async function MapPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div>
-          <h2 className="text-xl font-semibold">Map</h2>
+          <h2 className="text-xl font-semibold">🗺️ Map</h2>
           <p className="text-sm text-slate-500">
-            {points.length} submissions with GPS location · tap a pin to see details
+            {points.length} submissions with GPS · tap a pin → see reading + Google Maps link
           </p>
         </div>
+        <Suspense fallback={<div className="h-9 w-32 bg-slate-200 rounded animate-pulse" />}>
+          <MapExportButton />
+        </Suspense>
       </div>
 
+      <Suspense fallback={<div className="h-12 bg-slate-100 rounded-lg animate-pulse" />}>
+        <FilterBar />
+      </Suspense>
+
       {points.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-6 text-center text-slate-500">
-          No submissions have GPS location data yet. Check that your Kobo form captures geopoint.
+        <div className="bg-white rounded-xl shadow p-6 text-center text-slate-500">
+          No submissions match the current filters, or they don't have GPS data.
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-xl shadow overflow-hidden">
           <MapView points={points} />
         </div>
       )}
