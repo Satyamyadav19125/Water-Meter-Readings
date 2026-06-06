@@ -2,6 +2,7 @@ import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser } from '@/lib/filter';
 import { getField, parseReading } from '@/lib/fieldMap';
 import { detectRedFlags } from '@/lib/redflags';
+import { getSettings } from '@/lib/db';
 import { BarChart, LineChart, DonutChart } from '@/components/SimpleCharts';
 
 export const dynamic = 'force-dynamic';
@@ -9,13 +10,15 @@ export const dynamic = 'force-dynamic';
 export default async function AnalyticsPage() {
   let submissions = [];
   let error = null;
-  try { submissions = await fetchSubmissions(); }
-  catch (e) { error = e.message; }
+  let settings;
+  try {
+    [submissions, settings] = await Promise.all([fetchSubmissions(), getSettings()]);
+  } catch (e) { error = e.message; }
 
   if (error) return <div className="bg-red-50 border border-red-200 rounded p-4 text-red-800 text-sm">{error}</div>;
 
   submissions = await filterSubmissionsForUser(submissions);
-  const flags = detectRedFlags(submissions);
+  const flags = detectRedFlags(submissions, { enabled: settings?.redFlags });
 
   const total = submissions.length;
   const flaggedTotal = Object.keys(flags).length;
@@ -31,15 +34,12 @@ export default async function AnalyticsPage() {
     const sv = getField(s, 'surveyor') || 'Unknown';
     const serial = getField(s, 'serial');
     const reading = parseReading(getField(s, 'endReading'));
-
     villageCounts[v] = (villageCounts[v] || 0) + 1;
     surveyorCounts[sv] = (surveyorCounts[sv] || 0) + 1;
-
     if (serial && !Number.isNaN(reading)) {
       if (!readingsByMeter[serial]) readingsByMeter[serial] = [];
       readingsByMeter[serial].push({ time: new Date(s._submission_time).getTime(), reading, village: getField(s, 'village') });
     }
-
     const d = new Date(s._submission_time).toISOString().slice(0, 10);
     byDate[d] = (byDate[d] || 0) + 1;
   }
@@ -56,23 +56,17 @@ export default async function AnalyticsPage() {
     const latest = list[list.length - 1].reading;
     const earliest = list[0].reading;
     if (!Number.isNaN(latest)) { avgLatest += latest; meterCountForAvg++; }
-    const used = list.length > 1 && !Number.isNaN(earliest) && !Number.isNaN(latest)
-      ? Math.max(0, latest - earliest) : 0;
+    const used = list.length > 1 && !Number.isNaN(earliest) && !Number.isNaN(latest) ? Math.max(0, latest - earliest) : 0;
     topUsageMeters.push({ serial, used, village: list[0].village || 'Unknown' });
   }
   avgLatest = meterCountForAvg > 0 ? Math.round(avgLatest / meterCountForAvg) : 0;
   topUsageMeters.sort((a, b) => b.used - a.used);
   topUsageMeters = topUsageMeters.slice(0, 10);
 
-  const villageBars = Object.entries(villageCounts)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 12);
-
-  const surveyorBars = Object.entries(surveyorCounts)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
+  const villageBars = Object.entries(villageCounts).map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value).slice(0, 12);
+  const surveyorBars = Object.entries(surveyorCounts).map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
 
   const sortedDates = Object.keys(byDate).sort();
   let timeline = sortedDates.map((d) => ({
@@ -82,50 +76,46 @@ export default async function AnalyticsPage() {
   if (timeline.length > 30) timeline = timeline.slice(-30);
 
   const cleanVsFlagged = [
-    { label: 'Clean', value: cleanTotal, color: '#10b981' },
+    { label: 'Clean', value: cleanTotal, color: '#22c55e' },
     { label: 'Flagged', value: flaggedTotal, color: '#ef4444' },
   ];
 
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-semibold">Analytics</h2>
-        <p className="text-sm text-slate-500">Overview of all readings · charts update live</p>
+        <h2 className="text-xl font-semibold">📊 Analytics</h2>
+        <p className="text-sm text-slate-500">All data across the active form</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-        <Kpi label="Total submissions" value={total} color="bg-brand-50 text-brand-900" />
-        <Kpi label="Villages covered" value={uniqueVillages} color="bg-emerald-50 text-emerald-900" />
-        <Kpi label="Active surveyors" value={uniqueSurveyors} color="bg-amber-50 text-amber-900" />
-        <Kpi label="Unique meters" value={uniqueMeters} color="bg-violet-50 text-violet-900" />
-        <Kpi label="Average reading" value={avgLatest.toLocaleString()} color="bg-sky-50 text-sky-900" />
-        <Kpi label="Flagged readings" value={flaggedTotal} color={flaggedTotal > 0 ? 'bg-red-50 text-red-900' : 'bg-slate-50 text-slate-700'} />
-        <Kpi label="Clean readings" value={cleanTotal} color="bg-green-50 text-green-900" />
-        <Kpi
-          label="Quality rate"
-          value={total > 0 ? `${Math.round((cleanTotal / total) * 100)}%` : '—'}
-          color={flaggedTotal === 0 ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-50 text-amber-900'}
-        />
+        <Kpi label="Total" value={total.toLocaleString()} color="bg-brand-50 text-brand-900"/>
+        <Kpi label="Clean" value={cleanTotal.toLocaleString()} color="bg-field-50 text-field-900"/>
+        <Kpi label="🚩 Flagged" value={flaggedTotal.toLocaleString()} color={flaggedTotal > 0 ? 'bg-red-50 text-red-900' : 'bg-slate-50 text-slate-700'}/>
+        <Kpi label="Quality rate" value={total > 0 ? `${Math.round((cleanTotal / total) * 100)}%` : '—'} color="bg-emerald-50 text-emerald-900"/>
+        <Kpi label="Villages" value={uniqueVillages} color="bg-amber-50 text-amber-900"/>
+        <Kpi label="Surveyors" value={uniqueSurveyors} color="bg-violet-50 text-violet-900"/>
+        <Kpi label="Unique meters" value={uniqueMeters} color="bg-sky-50 text-sky-900"/>
+        <Kpi label="Avg latest reading" value={avgLatest.toLocaleString()} color="bg-slate-100 text-slate-900"/>
       </div>
 
-      <Card title="Submissions over time" subtitle={`${timeline.length} days with activity`}>
-        <LineChart data={timeline} color="#0284c7" emptyText="No submissions yet" />
+      <Card title="Submissions over time" subtitle={`${timeline.length} days with activity · ${total} total readings`}>
+        <LineChart data={timeline} color="#0284c7" emptyText="No submissions yet"/>
       </Card>
 
-      <Card title="Submissions per village" subtitle="Top 12">
-        <BarChart data={villageBars} color="#0284c7" emptyText="No villages yet" />
+      <Card title="Submissions per village" subtitle={`${uniqueVillages} villages · top 12 shown`}>
+        <BarChart data={villageBars} color="#0284c7" emptyText="No villages yet"/>
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Card title="Submissions per surveyor" subtitle="Top 10">
-          <BarChart data={surveyorBars} color="#7c3aed" emptyText="No surveyors yet" />
+        <Card title="Submissions per surveyor" subtitle={`${uniqueSurveyors} surveyors total`}>
+          <VerticalBars data={surveyorBars} color="#7c3aed"/>
         </Card>
-        <Card title="Data quality" subtitle="Clean vs flagged submissions">
-          <DonutChart data={cleanVsFlagged} emptyText="No submissions yet" />
+        <Card title="Data quality" subtitle={`${cleanTotal} clean · ${flaggedTotal} flagged`}>
+          <DonutChart data={cleanVsFlagged} emptyText="No submissions yet"/>
         </Card>
       </div>
 
-      <Card title="Top 10 meters by total usage" subtitle="Difference between first and last reading">
+      <Card title="Top 10 meters by total usage" subtitle="Difference between first and latest reading">
         {topUsageMeters.length === 0 ? (
           <div className="text-sm text-slate-400 py-8 text-center">Not enough readings yet</div>
         ) : (
@@ -161,7 +151,7 @@ export default async function AnalyticsPage() {
 
 function Kpi({ label, value, color }) {
   return (
-    <div className={`rounded-lg p-3 ${color}`}>
+    <div className={`rounded-xl p-3 ${color}`}>
       <div className="text-2xl font-bold leading-tight tabular-nums">{value}</div>
       <div className="text-[11px] sm:text-xs mt-0.5 opacity-80">{label}</div>
     </div>
@@ -170,12 +160,32 @@ function Kpi({ label, value, color }) {
 
 function Card({ title, subtitle, children }) {
   return (
-    <div className="bg-white rounded-lg shadow p-4">
+    <div className="bg-white rounded-xl shadow-sm p-4">
       <div className="mb-3">
         <h3 className="font-semibold text-base">{title}</h3>
         {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
       </div>
       {children}
     </div>
+  );
+}
+
+function VerticalBars({ data, color = '#0284c7' }) {
+  if (!data || data.length === 0) return <div className="text-sm text-slate-400 text-center py-8">No data</div>;
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return (
+    <ul className="space-y-2.5">
+      {data.map((d, i) => (
+        <li key={i}>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="font-medium text-slate-700 truncate pr-2">{d.label}</span>
+            <span className="text-slate-500 tabular-nums shrink-0">{d.value}</span>
+          </div>
+          <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{ width: `${(d.value / max) * 100}%`, background: color }}/>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
