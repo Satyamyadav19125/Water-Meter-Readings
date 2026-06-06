@@ -8,6 +8,8 @@ const baseLinks = [
   { href: '/', label: 'Pending', icon: '📅' },
   { href: '/submissions', label: 'Submissions', icon: '📋' },
   { href: '/usage', label: 'Usage', icon: '💧' },
+  { href: '/analytics', label: 'Analytics', icon: '📊' },
+  { href: '/map', label: 'Map', icon: '🗺️' },
   { href: '/kobo-view', label: 'Kobo View', icon: '🪞' },
   { href: '/assignments', label: 'Assignments', icon: '👥' },
 ];
@@ -19,7 +21,7 @@ export default function MobileNav({ user }) {
   const isAdmin = user?.role === 'admin';
   const isUser = user?.role === 'user';
   const loggedIn = !!user;
-  const badge = isAdmin ? 'Admin ✓' : isUser ? user.name : null;
+  const badge = isAdmin ? 'Admin' : isUser ? user.name : null;
 
   const links = isAdmin ? [...baseLinks, { href: '/debug', label: 'Debug', icon: '🔧' }] : baseLinks;
 
@@ -32,25 +34,32 @@ export default function MobileNav({ user }) {
             <span className="truncate">Water Meter Dashboard</span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-1 text-sm">
+          <nav className="hidden lg:flex items-center gap-1 text-sm">
             {links.map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
-                className={`px-3 py-1.5 rounded transition ${pathname === l.href ? 'bg-white/20' : 'hover:bg-white/10'}`}
+                className={`px-2.5 py-1.5 rounded transition ${pathname === l.href ? 'bg-white/20' : 'hover:bg-white/10'}`}
               >
                 {l.label}
               </Link>
             ))}
             {loggedIn ? (
-              <button onClick={doLogout} className="px-3 py-1.5 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-sm">{badge}</button>
+              <button
+                onClick={doLogout}
+                title={`Logged in as ${badge} — click to log out`}
+                className="ml-2 px-3 py-1.5 rounded bg-emerald-500/30 hover:bg-red-500/50 text-sm flex items-center gap-1 transition group"
+              >
+                <span>{badge}</span>
+                <span className="text-xs opacity-70 group-hover:opacity-100">· Log out</span>
+              </button>
             ) : (
-              <Link href="/login" className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20">Login</Link>
+              <Link href="/login" className="ml-2 px-3 py-1.5 rounded bg-white/10 hover:bg-white/20">Login</Link>
             )}
           </nav>
 
           <button
-            className="md:hidden p-2 -mr-2 rounded hover:bg-white/10"
+            className="lg:hidden p-2 -mr-2 rounded hover:bg-white/10"
             onClick={() => setOpen(!open)}
             aria-label="Menu"
           >
@@ -62,14 +71,22 @@ export default function MobileNav({ user }) {
       </header>
 
       {open && (
-        <div className="md:hidden fixed inset-0 z-20 bg-black/40" onClick={() => setOpen(false)}>
-          <div className="absolute top-14 right-0 w-64 bg-white shadow-xl rounded-bl-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <nav className="flex flex-col">
-              {loggedIn && (
-                <div className="px-4 py-2 bg-brand-50 text-brand-900 text-xs border-b">
+        <div className="lg:hidden fixed inset-0 z-20 bg-black/40" onClick={() => setOpen(false)}>
+          <div className="absolute top-14 right-0 w-72 bg-white shadow-xl rounded-bl-lg overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            {loggedIn && (
+              <div className="px-4 py-3 bg-brand-50 text-brand-900 text-sm border-b flex items-center justify-between">
+                <div>
                   Logged in as <strong>{badge}</strong>
                 </div>
-              )}
+                <button
+                  onClick={doLogout}
+                  className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded font-medium hover:bg-red-200"
+                >
+                  Log out
+                </button>
+              </div>
+            )}
+            <nav className="flex flex-col">
               {links.map((l) => (
                 <Link
                   key={l.href}
@@ -81,13 +98,11 @@ export default function MobileNav({ user }) {
                   <span>{l.label}</span>
                 </Link>
               ))}
-              <div className="p-3 bg-slate-50">
-                {loggedIn ? (
-                  <button onClick={doLogout} className="w-full px-3 py-2 rounded bg-emerald-100 text-emerald-900 text-sm">Logout</button>
-                ) : (
-                  <Link href="/login" onClick={() => setOpen(false)} className="block text-center w-full px-3 py-2 rounded bg-brand-600 text-white text-sm">Login</Link>
-                )}
-              </div>
+              {!loggedIn && (
+                <div className="p-3 bg-slate-50">
+                  <Link href="/login" onClick={() => setOpen(false)} className="block text-center w-full px-3 py-2 rounded bg-brand-600 text-white text-sm font-medium">Login</Link>
+                </div>
+              )}
             </nav>
           </div>
         </div>
@@ -97,10 +112,11 @@ export default function MobileNav({ user }) {
 }
 
 async function doLogout() {
+  if (!confirm('Log out?')) return;
   await fetch('/api/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'logout' }),
   });
-  window.location.href = '/';
+  window.location.href = '/login';
 }
