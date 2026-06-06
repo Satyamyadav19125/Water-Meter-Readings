@@ -18,11 +18,7 @@ export async function POST(request) {
   }
 
   const cookieOpts = {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30,
+    httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30,
   };
 
   if (checkAdminPassword(password)) {
