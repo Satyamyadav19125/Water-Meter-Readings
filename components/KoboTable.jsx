@@ -22,6 +22,7 @@ export default function KoboTable({ rows }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(30);
   const [detail, setDetail] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
 
   const filtered = useMemo(() => {
     return rows.filter((r) =>
@@ -96,7 +97,7 @@ export default function KoboTable({ rows }) {
                 <td className="px-3 py-2 font-semibold tabular-nums">{r.reading}</td>
                 <td className="px-3 py-2">
                   {r.photo
-                    ? <a href={r.photo} target="_blank" rel="noreferrer" className="text-brand-600 text-xs hover:underline">📷 view</a>
+                    ? <button onClick={() => setLightbox(r.photo)} className="text-brand-600 text-xs hover:underline">📷 view</button>
                     : <span className="text-slate-300 text-xs">–</span>}
                 </td>
               </tr>
@@ -135,9 +136,9 @@ export default function KoboTable({ rows }) {
             </div>
             <div className="p-4 space-y-2 text-sm">
               {detail.photo && (
-                <a href={detail.photo} target="_blank" rel="noreferrer">
-                  <img src={detail.photo} alt="meter" className="w-full rounded-lg border border-slate-200 mb-2" />
-                </a>
+                <button onClick={() => setLightbox(detail.photo)} className="block w-full">
+                  <img src={detail.photo} alt="meter" className="w-full rounded-lg border border-slate-200 mb-2 cursor-zoom-in" />
+                </button>
               )}
               <Row k="Surveyor" v={detail.surveyor} />
               <Row k="Village" v={detail.village} />
@@ -155,6 +156,22 @@ export default function KoboTable({ rows }) {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {/* Photo lightbox — stays in-app, with a clear Back button */}
+      {lightbox && (
+        <div className="fixed inset-0 z-[1300] bg-black/85 flex flex-col" onClick={() => setLightbox(null)}>
+          <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setLightbox(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-sm font-medium">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+              Back
+            </button>
+            <a href={lightbox} target="_blank" rel="noreferrer" className="text-xs text-white/80 hover:text-white underline">Open original ↗</a>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4 overflow-auto" onClick={() => setLightbox(null)}>
+            <img src={lightbox} alt="meter photo" className="max-w-full max-h-full rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
+          </div>
+          <div className="text-center text-white/50 text-xs pb-3">Tap anywhere to go back</div>
         </div>
       )}
     </div>
