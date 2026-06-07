@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import PhotoUpload from '@/components/PhotoUpload';
 
 export default function AssignmentsPage() {
   const router = useRouter();
@@ -180,9 +181,7 @@ export default function AssignmentsPage() {
                         <input value={person.email || ''} onChange={(e) => updatePerson(i, 'email', e.target.value)} placeholder="email" className="aw-input"/>
                       </Field>
                     </div>
-                    <Field label="Photo URL">
-                      <input value={person.photo || ''} onChange={(e) => updatePerson(i, 'photo', e.target.value)} placeholder="https://…" className="aw-input"/>
-                    </Field>
+                    <PhotoUpload value={person.photo} onChange={(url) => updatePerson(i, 'photo', url)} label="Photo" />
                     <Field label="Bio">
                       <input value={person.bio || ''} onChange={(e) => updatePerson(i, 'bio', e.target.value)} placeholder="Short bio" className="aw-input"/>
                     </Field>
