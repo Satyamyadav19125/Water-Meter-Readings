@@ -3,10 +3,12 @@ import { getAssignments, saveAssignments, isDbConfigured } from '@/lib/db';
 import { isAdmin } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   if (!isDbConfigured()) {
     return NextResponse.json(
-      { error: 'Database not configured. Add UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN to Vercel.' },
+      { error: 'Database not configured. Add MONGODB_URI in Vercel → Settings → Environment Variables.' },
       { status: 500 }
     );
   }
@@ -14,7 +16,7 @@ export async function GET() {
     const list = await getAssignments();
     return NextResponse.json({ assignments: list });
   } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message, assignments: [] }, { status: 200 });
   }
 }
 
@@ -31,9 +33,16 @@ export async function PUT(request) {
   if (!Array.isArray(body?.assignments)) {
     return NextResponse.json({ error: 'Expected { assignments: [...] }' }, { status: 400 });
   }
-  await saveAssignments(body.assignments);
-  revalidatePath('/');
-  revalidatePath('/submissions');
-  revalidatePath('/usage');
-  return NextResponse.json({ ok: true, count: body.assignments.length });
+  try {
+    await saveAssignments(body.assignments);
+    revalidatePath('/');
+    revalidatePath('/submissions');
+    revalidatePath('/usage');
+    return NextResponse.json({ ok: true, count: body.assignments.length });
+  } catch (e) {
+    return NextResponse.json(
+      { error: `Could not save: ${e.message}. This usually means the database password in MONGODB_URI is wrong.` },
+      { status: 500 }
+    );
+  }
 }
