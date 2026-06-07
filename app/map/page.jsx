@@ -2,6 +2,8 @@ import { Suspense } from 'react';
 import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
+import { detectRedFlags } from '@/lib/redflags';
+import { getSettings } from '@/lib/db';
 import MapView from '@/components/MapView';
 import FilterBar from '@/components/FilterBar';
 import MapExportButton from '@/components/MapExportButton';
@@ -17,9 +19,7 @@ function parseLocation(val) {
     return null;
   }
   const parts = String(val).trim().split(/\s+/).map((x) => Number(x));
-  if (parts.length >= 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
-    return { lat: parts[0], lng: parts[1] };
-  }
+  if (parts.length >= 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) return { lat: parts[0], lng: parts[1] };
   return null;
 }
 
@@ -27,18 +27,24 @@ export default async function MapPage({ searchParams }) {
   const sp = (await searchParams) || {};
   let submissions = [];
   let error = null;
-  try { submissions = await fetchSubmissions(); }
-  catch (e) { error = e.message; }
+  let settings;
+  try {
+    submissions = await fetchSubmissions();
+    settings = await getSettings();
+  } catch (e) { error = e.message; }
 
   if (error) return <div className="bg-red-50 border border-red-200 rounded p-4 text-red-800 text-sm">{error}</div>;
 
   submissions = await filterSubmissionsForUser(submissions);
   submissions = applyUrlFilters(submissions, sp);
 
+  const flags = detectRedFlags(submissions, { enabled: settings?.redFlags });
+
   const points = [];
   for (const s of submissions) {
     const loc = parseLocation(getField(s, 'location')) || parseLocation(s._geolocation);
     if (loc) {
+      const f = flags[s._id];
       points.push({
         id: s._id,
         lat: loc.lat,
@@ -48,9 +54,13 @@ export default async function MapPage({ searchParams }) {
         reading: getField(s, 'endReading') ?? '—',
         surveyor: getField(s, 'surveyor') || 'Unknown',
         time: s._submission_time,
+        isFlagged: !!f,
+        flagTypes: f ? f.flags.map((x) => x.type) : [],
       });
     }
   }
+
+  const flaggedTotal = points.filter((p) => p.isFlagged).length;
 
   return (
     <div className="space-y-3">
@@ -58,7 +68,7 @@ export default async function MapPage({ searchParams }) {
         <div>
           <h2 className="text-xl font-semibold">🗺️ Map</h2>
           <p className="text-sm text-slate-500">
-            {points.length} submissions with GPS · tap a pin → see reading + Google Maps link
+            {points.length} with GPS · <span className="text-red-600 font-medium">{flaggedTotal} flagged</span> · tap a pin for details
           </p>
         </div>
         <Suspense fallback={<div className="h-9 w-32 bg-slate-200 rounded animate-pulse" />}>
