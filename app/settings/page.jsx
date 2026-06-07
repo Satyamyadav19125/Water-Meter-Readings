@@ -9,6 +9,14 @@ const FLAG_LABELS = {
   growth_anomaly: 'Growth anomaly (5× normal rate)',
   stale_no_reading: 'Stale (no reading for 10+ days)',
   stale_unchanged: 'Stuck (3 same readings)',
+  future_date: 'Future-dated reading',
+  out_of_sequence: 'Date earlier than previous reading',
+  zero_consumption: 'Zero usage over 7+ days (stuck/bypassed)',
+  duplicate_same_day: 'Same meter read twice in one day',
+  missing_photo: 'Missing meter photo',
+  invalid_meter_id: 'Invalid meter ID format (not WM######)',
+  gps_outlier: 'GPS far from meter\'s usual spot',
+  digit_count: 'Digit-count jump (likely typo)',
 };
 
 export default function SettingsPage() {
@@ -86,6 +94,7 @@ export default function SettingsPage() {
       {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2 text-sm">{message}</div>}
       {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm">{error}</div>}
 
+      {/* Kobo forms */}
       <Section title="📋 Kobo forms" subtitle="Switch between seasonal forms (Kharif, Rabi, etc). Mark exactly one as active.">
         <div className="space-y-3">
           {(settings.forms || []).length === 0 && (
@@ -112,6 +121,7 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Project info */}
       <Section title="🌱 Project info">
         <Field label="Project name">
           <input value={settings.project.name} onChange={(e) => updateProject('name', e.target.value)} className="input"/>
@@ -127,6 +137,7 @@ export default function SettingsPage() {
         </Field>
       </Section>
 
+      {/* Contact */}
       <Section title="📬 Contact info">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Admin email"><input value={settings.contact.adminEmail} onChange={(e) => updateContact('adminEmail', e.target.value)} className="input"/></Field>
@@ -142,6 +153,7 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Red flags */}
       <Section title="🚩 Red flag rules" subtitle="Toggle which checks should fire">
         <div className="space-y-2">
           {Object.entries(FLAG_LABELS).map(([k, label]) => (
