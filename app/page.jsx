@@ -2,11 +2,11 @@ import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { computeWeeklyStatus, deriveMeters, daysRemaining } from '@/lib/weekly';
 import { detectRedFlags } from '@/lib/redflags';
-import { getAssignments, isDbConfigured, getSettings } from '@/lib/db';
+import { getAssignments, isDbConfigured, getSettings, testMongo } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { filterSubmissionsForUser, filterAssignmentsForUser } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
-import { BarChart, LineChart, DonutChart } from '@/components/SimpleCharts';
+import { BarChart, DonutChart } from '@/components/SimpleCharts';
 import Landing from '@/components/Landing';
 
 export const dynamic = 'force-dynamic';
@@ -15,23 +15,31 @@ export default async function HomePage() {
   const currentUser = await getCurrentUser();
   if (!currentUser) return <Landing />;
 
+  // 1) Kobo data is the critical path — fetch it on its own.
   let submissions = [];
-  let assignments = [];
-  let error = null;
-  let settings;
+  let koboError = null;
+  try { submissions = await fetchSubmissions(); }
+  catch (e) { koboError = e.message; }
 
+  // 2) MongoDB is optional for viewing — never let it block the page.
+  let assignments = [];
+  let settings;
+  let dbWarning = null;
   try {
-    [submissions, assignments, settings] = await Promise.all([
-      fetchSubmissions(),
+    [assignments, settings] = await Promise.all([
       isDbConfigured() ? getAssignments() : Promise.resolve([]),
       getSettings(),
     ]);
-  } catch (e) { error = e.message; }
+    if (isDbConfigured()) {
+      const t = await testMongo();
+      if (!t.ok) dbWarning = t.error;
+    }
+  } catch (e) { dbWarning = e.message; }
 
-  if (error) return (
+  if (koboError) return (
     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
       <p className="font-semibold mb-1">Could not load data from Kobo</p>
-      <p className="text-sm">{error}</p>
+      <p className="text-sm">{koboError}</p>
       <p className="text-xs mt-2">
         Visit <Link href="/debug" className="underline">/debug</Link> for details · or <Link href="/settings" className="underline">/settings</Link> to switch the active form.
       </p>
@@ -73,6 +81,14 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-4">
+      {dbWarning && currentUser.role === 'admin' && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 text-sm">
+          <p className="font-semibold">⚠️ Database not connected (your Kobo data is fine)</p>
+          <p className="text-xs mt-1">Assignments, settings and saved profiles won't load until this is fixed. Error: <code className="bg-amber-100 px-1 rounded">{dbWarning}</code></p>
+          <p className="text-xs mt-1">This almost always means the password in your Vercel <b>MONGODB_URI</b> is wrong. See <Link href="/debug" className="underline">/debug</Link>.</p>
+        </div>
+      )}
+
       <div className="bg-gradient-to-br from-brand-50 to-field-50 border border-brand-100 rounded-xl p-4 sm:p-5 flex items-start gap-3">
         <div className="text-3xl shrink-0">💧</div>
         <div className="min-w-0 flex-1">
@@ -147,37 +163,28 @@ function Kpi({ label, value, color, icon }) {
     </div>
   );
 }
-
 function QuickLink({ href, icon, label }) {
   return (
     <Link href={href} className="bg-white rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition flex items-center gap-2 text-sm">
-      <span className="text-xl">{icon}</span>
-      <span className="font-medium">{label}</span>
+      <span className="text-xl">{icon}</span><span className="font-medium">{label}</span>
     </Link>
   );
 }
-
 function Card({ title, subtitle, children }) {
   return (
     <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5">
-      <div className="mb-3">
-        <h3 className="font-semibold text-base">{title}</h3>
-        {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
-      </div>
+      <div className="mb-3"><h3 className="font-semibold text-base">{title}</h3>{subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}</div>
       {children}
     </div>
   );
 }
-
 function MiniStat({ label, value, color }) {
   return (
     <div className={`rounded-lg p-3 text-center ${color}`}>
-      <div className="text-2xl font-bold tabular-nums">{value}</div>
-      <div className="text-[11px]">{label}</div>
+      <div className="text-2xl font-bold tabular-nums">{value}</div><div className="text-[11px]">{label}</div>
     </div>
   );
 }
-
 function VerticalBars({ data, color = '#0284c7' }) {
   if (!data || data.length === 0) return <div className="text-sm text-slate-400 text-center py-8">No data</div>;
   const max = Math.max(...data.map((d) => d.value), 1);
