@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { computeWeeklyStatus, deriveMeters, daysRemaining } from '@/lib/weekly';
 import { detectRedFlags } from '@/lib/redflags';
-import { getAssignments, isDbConfigured, getSettings, testMongo } from '@/lib/db';
+import { getAssignments, isDbConfigured, getSettings, getMongoHealth } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { filterSubmissionsForUser, filterAssignmentsForUser } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
