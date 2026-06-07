@@ -15,8 +15,12 @@ const FLAG_LABELS = {
   duplicate_same_day: 'Same meter read twice in one day',
   missing_photo: 'Missing meter photo',
   invalid_meter_id: 'Invalid meter ID format (not WM######)',
-  gps_outlier: 'GPS far from meter\'s usual spot',
+gps_outlier: 'GPS far from meter\'s usual spot',
   digit_count: 'Digit-count jump (likely typo)',
+  identical_gps: 'Same GPS used by different meters',
+  fabrication_speed: 'Surveyor logged readings impossibly fast (<15s apart)',
+  night_reading: 'Reading taken at night (10pm–5am)',
+  village_outlier: 'Usage far above village neighbours',
 };
 
 export default function SettingsPage() {
