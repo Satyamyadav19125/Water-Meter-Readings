@@ -15,13 +15,16 @@ function escapeHtml(s) {
   return String(s ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// Classic Leaflet teardrop markers, just recolored (blue = clean, red = flagged).
+const MARKER_SHADOW = 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-shadow.png';
 function pinIcon(L, color) {
-  return L.divIcon({
-    className: 'wm-pin',
-    html: `<span style="display:block;width:18px;height:18px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></span>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 18],
-    popupAnchor: [0, -16],
+  return L.icon({
+    iconUrl: `https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-2x-${color}.png`,
+    shadowUrl: MARKER_SHADOW,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41],
   });
 }
 
@@ -64,8 +67,8 @@ export default function MapView({ points = [] }) {
       const conf = TILE_LAYERS[layer];
       tileLayerRef.current = L.tileLayer(conf.url, { maxZoom: 19, attribution: conf.attribution }).addTo(map);
 
-      const redIcon = pinIcon(L, '#ef4444');
-      const blueIcon = pinIcon(L, '#0ea5e9');
+      const redIcon = pinIcon(L, 'red');
+      const blueIcon = pinIcon(L, 'blue');
       markersRef.current = [];
 
       for (const p of points) {
