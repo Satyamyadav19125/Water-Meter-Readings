@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PhotoUpload from '@/components/PhotoUpload';
 
+// Never throw "Unexpected end of JSON input" on an empty/non-JSON response.
+async function parseJsonSafe(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try { return JSON.parse(text); } catch { return { error: text.slice(0, 200) || 'Unexpected server response' }; }
+}
+
 export default function AssignmentsPage() {
   const router = useRouter();
   const [assignments, setAssignments] = useState([]);
@@ -31,17 +38,17 @@ export default function AssignmentsPage() {
         fetch('/api/surveyors').catch(() => null),
         fetch('/api/villages').catch(() => null),
       ]);
-      const aData = await aRes.json();
+      const aData = await parseJsonSafe(aRes);
       if (!aRes.ok) throw new Error(aData.error || 'Failed to load');
-      const uData = await uRes.json();
+      const uData = await parseJsonSafe(uRes);
       setUser(uData.user || null);
       if (sRes && sRes.ok) {
-        const s = await sRes.json();
+        const s = await parseJsonSafe(sRes);
         setSurveyors(s.surveyors || []);
         setPairings(s.pairings || {});
       }
       if (vRes && vRes.ok) {
-        const v = await vRes.json();
+        const v = await parseJsonSafe(vRes);
         setAllVillages(v.villages || []);
       }
       let list = aData.assignments || [];
@@ -69,7 +76,7 @@ export default function AssignmentsPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assignments: cleaned }),
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
       if (!res.ok) throw new Error(data.error || 'Save failed');
       setMessage('Saved ✓');
       setDirty(false);
