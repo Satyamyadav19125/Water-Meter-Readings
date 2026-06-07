@@ -30,10 +30,8 @@ export default async function HomePage() {
       isDbConfigured() ? getAssignments() : Promise.resolve([]),
       getSettings(),
     ]);
-    if (isDbConfigured()) {
-      const t = await testMongo();
-      if (!t.ok) dbWarning = t.error;
-    }
+const health = getMongoHealth();
+    if (health.configured && health.down) dbWarning = 'Database connection is failing (check MONGODB_URI password).';
   } catch (e) { dbWarning = e.message; }
 
   if (koboError) return (
