@@ -1,0 +1,171 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+
+const COLUMNS = [
+  { key: 'validation', label: 'Validation', width: 110 },
+  { key: 'start', label: 'start', width: 150 },
+  { key: 'end', label: 'end', width: 150 },
+  { key: 'date', label: 'Date', width: 120 },
+  { key: 'time', label: 'time', width: 130 },
+  { key: 'gps', label: 'Surveyor location', width: 180 },
+  { key: 'surveyor', label: 'Surveyor name', width: 130 },
+  { key: 'village', label: 'Village', width: 120 },
+  { key: 'meter', label: 'Meter ID', width: 150 },
+  { key: 'reading', label: 'Reading', width: 110 },
+];
+
+const PAGE_SIZES = [30, 50, 100];
+
+export default function KoboTable({ rows }) {
+  const [search, setSearch] = useState({});
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(30);
+  const [detail, setDetail] = useState(null);
+
+  const filtered = useMemo(() => {
+    return rows.filter((r) =>
+      COLUMNS.every((c) => {
+        const q = (search[c.key] || '').trim().toLowerCase();
+        if (!q) return true;
+        return String(r[c.key] ?? '').toLowerCase().includes(q);
+      })
+    );
+  }, [rows, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
+  function setCol(key, val) { setSearch((s) => ({ ...s, [key]: val })); setPage(0); }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-sm">
+          <span className="font-semibold text-brand-700">{filtered.length.toLocaleString()}</span>
+          <span className="text-slate-500"> results{filtered.length !== rows.length ? ` (of ${rows.length.toLocaleString()})` : ''}</span>
+        </div>
+        {Object.keys(search).some((k) => search[k]) && (
+          <button onClick={() => { setSearch({}); setPage(0); }} className="text-xs text-brand-600 hover:underline">Clear all column searches</button>
+        )}
+      </div>
+
+      <div className="overflow-x-auto scrollbar-thin">
+        <table className="text-sm border-collapse min-w-max">
+          <thead>
+            <tr className="bg-slate-50 border-b-2 border-slate-200">
+              <th className="sticky left-0 bg-slate-50 px-2 py-2 text-left text-xs font-semibold text-slate-600 w-12">#</th>
+              {COLUMNS.map((c) => (
+                <th key={c.key} className="px-3 py-2 text-left text-xs font-semibold text-slate-600 align-top" style={{ minWidth: c.width }}>
+                  <div className="flex items-center gap-1 mb-1">{c.label}</div>
+                  <input
+                    value={search[c.key] || ''}
+                    onChange={(e) => setCol(c.key, e.target.value)}
+                    placeholder="Search"
+                    className="w-full px-2 py-1 text-xs font-normal border border-slate-300 rounded bg-white"
+                  />
+                </th>
+              ))}
+              <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Photo</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {pageRows.length === 0 ? (
+              <tr><td colSpan={COLUMNS.length + 2} className="px-3 py-8 text-center text-slate-400">No matching submissions</td></tr>
+            ) : pageRows.map((r, i) => (
+              <tr key={r.id} className="hover:bg-brand-50/40">
+                <td className="sticky left-0 bg-white px-2 py-2 text-slate-400 text-xs">
+                  <button onClick={() => setDetail(r)} className="text-brand-600 hover:underline" title="View full submission">
+                    {safePage * pageSize + i + 1} 👁
+                  </button>
+                </td>
+                <td className="px-3 py-2">
+                  {r.validation
+                    ? <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">{r.validation}</span>
+                    : <span className="text-slate-300">–</span>}
+                </td>
+                <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{r.start}</td>
+                <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{r.end}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.date}</td>
+                <td className="px-3 py-2 text-xs whitespace-nowrap">{r.time}</td>
+                <td className="px-3 py-2 text-xs font-mono text-slate-500 whitespace-nowrap">{r.gps}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.surveyor}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.village === 'Unknown' ? <span className="text-slate-300">–</span> : r.village}</td>
+                <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{r.meter}</td>
+                <td className="px-3 py-2 font-semibold tabular-nums">{r.reading}</td>
+                <td className="px-3 py-2">
+                  {r.photo
+                    ? <a href={r.photo} target="_blank" rel="noreferrer" className="text-brand-600 text-xs hover:underline">📷 view</a>
+                    : <span className="text-slate-300 text-xs">–</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination bar (Kobo style) */}
+      <div className="px-3 py-2.5 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap text-sm">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setPage(0)} disabled={safePage === 0} className="px-2 py-1 rounded border border-slate-300 disabled:opacity-40 text-xs">« First</button>
+          <button onClick={() => setPage(safePage - 1)} disabled={safePage === 0} className="px-2 py-1 rounded border border-slate-300 disabled:opacity-40 text-xs">‹ Prev</button>
+          <span className="text-slate-600 text-xs px-1">Page {safePage + 1} of {pageCount}</span>
+          <button onClick={() => setPage(safePage + 1)} disabled={safePage >= pageCount - 1} className="px-2 py-1 rounded border border-slate-300 disabled:opacity-40 text-xs">Next ›</button>
+          <button onClick={() => setPage(pageCount - 1)} disabled={safePage >= pageCount - 1} className="px-2 py-1 rounded border border-slate-300 disabled:opacity-40 text-xs">Last »</button>
+        </div>
+        <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          Rows:
+          <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }} className="border border-slate-300 rounded px-1.5 py-1">
+            {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {/* Detail modal */}
+      {detail && (
+        <div className="fixed inset-0 z-[1200] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setDetail(null)}>
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-gradient-to-r from-brand-700 to-field-700 text-white px-4 py-3 flex items-center justify-between">
+              <div>
+                <div className="font-semibold">{detail.village === 'Unknown' ? 'Submission' : detail.village}</div>
+                <div className="text-xs text-white/80">#{detail.id}</div>
+              </div>
+              <button onClick={() => setDetail(null)} className="text-white/90 text-xl leading-none">×</button>
+            </div>
+            <div className="p-4 space-y-2 text-sm">
+              {detail.photo && (
+                <a href={detail.photo} target="_blank" rel="noreferrer">
+                  <img src={detail.photo} alt="meter" className="w-full rounded-lg border border-slate-200 mb-2" />
+                </a>
+              )}
+              <Row k="Surveyor" v={detail.surveyor} />
+              <Row k="Village" v={detail.village} />
+              <Row k="Meter ID" v={detail.meter} mono />
+              <Row k="Reading" v={detail.reading} bold />
+              <Row k="Date" v={detail.date} />
+              <Row k="Time" v={detail.time} />
+              <Row k="Start" v={detail.start} />
+              <Row k="End" v={detail.end} />
+              <Row k="GPS" v={detail.gps} mono />
+              <Row k="Submitted" v={detail.submitted} />
+              {detail.lat && (
+                <a target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${detail.lat},${detail.lng}`}
+                  className="inline-block mt-2 px-3 py-2 bg-field-600 text-white rounded-lg text-xs">🧭 Directions to this meter</a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ k, v, mono, bold }) {
+  return (
+    <div className="flex justify-between gap-3 py-1 border-b border-slate-50">
+      <span className="text-slate-500">{k}</span>
+      <span className={`text-right ${mono ? 'font-mono text-xs' : ''} ${bold ? 'font-semibold' : ''}`}>{v || '–'}</span>
+    </div>
+  );
+}
