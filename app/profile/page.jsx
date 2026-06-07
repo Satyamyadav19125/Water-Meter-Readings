@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import PhotoUpload from '@/components/PhotoUpload';
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState(null);
@@ -101,9 +102,7 @@ export default function ProfilePage() {
         {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm mb-3">{error}</div>}
 
         <form onSubmit={save} className="space-y-3">
-          <Field label="Photo URL (paste a link to an online photo)">
-            <input type="url" value={form.photo} onChange={(e) => setForm({ ...form, photo: e.target.value })} placeholder="https://…" className="profile-input" />
-          </Field>
+          <PhotoUpload value={form.photo} onChange={(url) => setForm({ ...form, photo: url })} label="Profile photo" />
           <Field label="Bio (a short line about yourself)">
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} rows="2" placeholder="e.g. Field assistant since 2023, based in Patiala" className="profile-input" />
           </Field>
@@ -129,7 +128,11 @@ export default function ProfilePage() {
             <p className="text-xs text-slate-500 mt-2">Leave blank to keep your current password.</p>
           </details>
 
-          <button type="submit" disabled={saving} className="w-full bg-brand-600 text-white py-2.5 rounded-lg font-medium hover:bg-brand-700 disabled:bg-slate-300">
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full bg-brand-600 text-white py-2.5 rounded-lg font-medium hover:bg-brand-700 disabled:bg-slate-300"
+          >
             {saving ? 'Saving…' : 'Save profile'}
           </button>
         </form>
