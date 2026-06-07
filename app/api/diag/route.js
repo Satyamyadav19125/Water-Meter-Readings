@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/auth';
+import { testMongo } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,15 +34,19 @@ export async function GET() {
       ADMIN_PASSWORD: process.env.ADMIN_PASSWORD ? 'set' : 'NOT SET',
       WEBHOOK_SECRET: process.env.WEBHOOK_SECRET ? 'set' : 'NOT SET',
     },
+    mongodb: null,
     tests: [],
   };
 
+  // ---- MongoDB test (THIS is what causes "bad auth : authentication failed") ----
+  diag.mongodb = await testMongo();
+  if (diag.mongodb && !diag.mongodb.ok && diag.mongodb.configured) {
+    diag.mongodb.hint = 'If this says "bad auth", the password in your Vercel MONGODB_URI is wrong. Reset the DB user password in MongoDB Atlas (Database Access), then update MONGODB_URI in Vercel and redeploy.';
+  }
+
   async function runTest(name, url) {
     try {
-      const res = await fetch(url, {
-        headers: { Authorization: `Token ${cleanedToken}` },
-        cache: 'no-store',
-      });
+      const res = await fetch(url, { headers: { Authorization: `Token ${cleanedToken}` }, cache: 'no-store' });
       const text = await res.text();
       diag.tests.push({ name, url, status: res.status, ok: res.ok, snippet: text.slice(0, 200) });
     } catch (e) {
