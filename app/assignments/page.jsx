@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PhotoUpload from '@/components/PhotoUpload';
+import MeterStatusTable from '@/components/MeterStatusTable';
 
 // Never throw "Unexpected end of JSON input" on an empty/non-JSON response.
 async function parseJsonSafe(res) {
@@ -136,6 +137,13 @@ export default function AssignmentsPage() {
 
       {!user && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900"><a href="/login" className="underline font-medium">Log in</a> to view or manage assignments.</div>}
 
+      {/* Field assistant: weekly meter tracking is their primary view */}
+      {user && !isAdmin && <MeterStatusTable />}
+
+      {user && !isAdmin && (
+        <h3 className="text-sm font-semibold text-slate-700 pt-2">🏘️ Your villages</h3>
+      )}
+
       {isAdmin && unassignedSurveyors.length > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <div className="text-sm font-semibold text-blue-900 mb-2">🧑 Surveyors found in Kobo data, not yet added here:</div>
@@ -235,6 +243,14 @@ export default function AssignmentsPage() {
         <button onClick={() => addPerson()} className="w-full bg-white border-2 border-dashed border-slate-300 rounded-xl py-4 text-slate-600 hover:border-brand-500 hover:text-brand-600 font-medium">
           + Add person manually
         </button>
+      )}
+
+      {isAdmin && (
+        <div className="pt-4 border-t border-slate-200">
+          <h3 className="text-base font-semibold text-slate-800 mb-2">📊 Meter tracking — all villages</h3>
+          <p className="text-xs text-slate-500 mb-3">Every meter and whether it has been read twice this week. This is the same view each field assistant sees, scoped to their own villages.</p>
+          <MeterStatusTable />
+        </div>
       )}
 
       <datalist id="surveyor-names">
