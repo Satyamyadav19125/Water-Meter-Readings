@@ -29,8 +29,8 @@ export default async function MapPage({ searchParams }) {
   let error = null;
   let settings;
   try {
-    submissions = await fetchSubmissions();
-    settings = await getSettings();
+try {
+    [submissions, settings] = await Promise.all([fetchSubmissions(), getSettings()]);
   } catch (e) { error = e.message; }
 
   if (error) return <div className="bg-red-50 border border-red-200 rounded p-4 text-red-800 text-sm">{error}</div>;
