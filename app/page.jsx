@@ -44,8 +44,10 @@ const health = getMongoHealth();
     </div>
   );
 
-  submissions = await filterSubmissionsForUser(submissions);
+submissions = await filterSubmissionsForUser(submissions);
   assignments = await filterAssignmentsForUser(assignments);
+
+  const myReadings = currentUser.role === 'user' ? splitOwn(submissions, currentUser.name).mine.length : null;
 
   const flags = detectRedFlags(submissions, { enabled: settings?.redFlags });
   const flaggedTotal = Object.keys(flags).length;
