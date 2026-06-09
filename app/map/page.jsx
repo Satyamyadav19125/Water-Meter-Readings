@@ -1,10 +1,9 @@
 import { Suspense } from 'react';
 import { fetchSubmissions } from '@/lib/kobo';
-import { filterSubmissionsForUser, applyUrlFilters, applyWhoFilter } from '@/lib/filter';
+import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
 import { detectRedFlags } from '@/lib/redflags';
-import { getSettings } from '@/lib/db';
-import { getCurrentUser } from '@/lib/auth';
+import { getSettings, getVerifiedIds } from '@/lib/db';
 import MapView from '@/components/MapView';
 import FilterBar from '@/components/FilterBar';
 import MapExportButton from '@/components/MapExportButton';
@@ -28,38 +27,24 @@ export default async function MapPage({ searchParams }) {
   const sp = (await searchParams) || {};
   let submissions = [];
   let settings;
+  let verifiedIds = new Set();
   let error = null;
   try {
-    [submissions, settings] = await Promise.all([fetchSubmissions(), getSettings()]);
+    [submissions, settings, verifiedIds] = await Promise.all([fetchSubmissions(), getSettings(), getVerifiedIds()]);
   } catch (e) { error = e.message; }
 
   if (error) return <div className="bg-red-50 border border-red-200 rounded p-4 text-red-800 text-sm">{error}</div>;
 
-  const currentUser = await getCurrentUser();
-  const isUser = currentUser?.role === 'user';
-  const myName = currentUser?.name || '';
-
-  const villageScoped = await filterSubmissionsForUser(submissions);
-  const flags = detectRedFlags(villageScoped, { enabled: settings?.redFlags });
-
-  let mineFlagged = 0, othersFlagged = 0;
-  if (isUser) {
-    for (const s of villageScoped) {
-      if (!flags[s._id]) continue;
-      if (String(getField(s, 'surveyor') || '').trim().toLowerCase() === myName.trim().toLowerCase()) mineFlagged++;
-      else othersFlagged++;
-    }
-  }
-
-  const who = isUser ? (sp.who || 'all') : 'all';
-  let scoped = applyWhoFilter(villageScoped, who, myName);
-  scoped = applyUrlFilters(scoped, sp);
+  const scoped0 = await filterSubmissionsForUser(submissions);
+  const flags = detectRedFlags(scoped0, { enabled: settings?.redFlags });
+  const scoped = applyUrlFilters(scoped0, sp);
 
   const points = [];
   for (const s of scoped) {
     const loc = parseLocation(getField(s, 'location')) || parseLocation(s._geolocation);
     if (loc) {
       const f = flags[s._id];
+      const flagged = !!f && !verifiedIds.has(String(s._id));
       points.push({
         id: s._id, lat: loc.lat, lng: loc.lng,
         village: getField(s, 'village') || 'Unknown',
@@ -67,8 +52,8 @@ export default async function MapPage({ searchParams }) {
         reading: getField(s, 'endReading') ?? '—',
         surveyor: getField(s, 'surveyor') || 'Unknown',
         time: s._submission_time,
-        isFlagged: !!f,
-        flagTypes: f ? f.flags.map((x) => x.type) : [],
+        isFlagged: flagged,
+        flagTypes: flagged ? f.flags.map((x) => x.type) : [],
       });
     }
   }
@@ -82,25 +67,11 @@ export default async function MapPage({ searchParams }) {
           <p className="text-sm text-slate-500">
             {points.length} with GPS · <span className="text-red-600 font-medium">{flaggedTotal} flagged</span> · tap a pin for details
           </p>
-          {isUser && (
-            <p className="text-xs text-slate-500 mt-0.5">
-              🚩 <span className="text-red-600 font-medium">{mineFlagged}</span> flagged by you ·{' '}
-              <span className="text-amber-600 font-medium">{othersFlagged}</span> flagged by others in your villages
-            </p>
-          )}
         </div>
         <Suspense fallback={<div className="h-9 w-32 bg-slate-200 rounded animate-pulse" />}>
           <MapExportButton />
         </Suspense>
       </div>
-
-      {isUser && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <WhoChip name="all" current={who} sp={sp}>Everyone in my villages</WhoChip>
-          <WhoChip name="mine" current={who} sp={sp}>Only mine</WhoChip>
-          <WhoChip name="others" current={who} sp={sp}>Others in my villages</WhoChip>
-        </div>
-      )}
 
       <Suspense fallback={<div className="h-12 bg-slate-100 rounded-lg animate-pulse" />}>
         <FilterBar />
@@ -116,20 +87,5 @@ export default async function MapPage({ searchParams }) {
         </div>
       )}
     </div>
-  );
-}
-
-function WhoChip({ name, current, sp, children }) {
-  const active = (current || 'all') === name;
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp || {})) {
-    if (k !== 'who' && v) params.set(k, Array.isArray(v) ? v[0] : String(v));
-  }
-  if (name !== 'all') params.set('who', name);
-  const href = `/map${params.toString() ? '?' + params.toString() : ''}`;
-  return (
-    <a href={href} className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border transition ${
-      active ? 'bg-field-600 text-white border-field-600' : 'bg-white text-slate-700 border-slate-300 hover:border-field-500'
-    }`}>{children}</a>
   );
 }
