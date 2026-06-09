@@ -96,8 +96,13 @@ submissions = await filterSubmissionsForUser(submissions);
           <p className="text-sm text-slate-600">
             {currentUser.role === 'admin'
               ? 'Full admin access. Manage assignments, settings, and view all data.'
-              : `You're assigned to ${currentUser.villages?.length || 0} village${currentUser.villages?.length === 1 ? '' : 's'}.`}
+ : `You're assigned to ${currentUser.villages?.length || 0} village${currentUser.villages?.length === 1 ? '' : 's'}.`}
           </p>
+          {currentUser.role === 'user' && (
+            <p className="text-xs text-slate-500 mt-1">
+              You've personally submitted <b className="text-brand-700">{myReadings}</b> of the <b>{submissions.length}</b> readings in your villages.
+            </p>
+          )}
         </div>
         <Link href={currentUser.role === 'admin' ? '/settings' : '/profile'}
           className="hidden sm:inline-flex items-center gap-1 text-xs bg-white px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50">
