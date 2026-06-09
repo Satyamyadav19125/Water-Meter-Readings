@@ -58,3 +58,29 @@ export default async function MeterPage({ params }) {
         <Stat label="Total submissions" value={mine.length} color="bg-slate-100" />
         <Stat label="Latest reading" value={latest ?? '—'} color="bg-brand-50" />
         <Stat label="Total used" value={total
+          1:00 PM
+Usage.toLocaleString()} color="bg-emerald-50" />
+<Stat label="Flagged" value={flaggedHere} color={flaggedHere > 0 ? 'bg-red-50' : 'bg-slate-50'} />
+</div>
+
+  <h2 className="text-lg font-semibold pt-2">All submissions for this meter</h2>
+  <SubmissionList
+    submissions={sorted}
+    flags={flags}
+    allSubmissions={submissions}
+    canVerify={currentUser?.role === 'admin'}
+    verifiedIds={Array.from(verifiedIds)}
+  />
+</div>
+);
+}
+
+function Stat({ label, value, color }) { return ( <div className={rounded-lg p-3 ${color}}> <div className="text-xl sm:text-2xl font-bold leading-tight tabular-nums">{value}</div> <div className="text-xs text-slate-700 mt-0.5">{label}</div> </div> ); }
+
+
+⚠️ One correction: in the file above there's a typo from formatting — the line `value={total Usage...}` must be `value={totalUsage.toLocaleString()}` (no space). Here is that single line correct, make sure it reads:
+
+```jsx
+        <Stat label="Total used" value={totalUsage.toLocaleString()} color="bg-emerald-50" />
+```
+
