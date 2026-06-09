@@ -27,7 +27,7 @@ export default function ProfilePage() {
         setError(d.error || 'Not logged in');
       }
       setLoading(false);
-    });
+    }).catch(() => { setError('Could not load your profile.'); setLoading(false); });
   }, []);
 
   const isAdmin = profile?.role === 'admin';
@@ -65,7 +65,6 @@ export default function ProfilePage() {
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       <div className="bg-white rounded-xl shadow p-5 sm:p-6">
-        {/* identity header — name + role only (photo lives once, in the form below) */}
         <div className="mb-4">
           <h1 className="text-xl font-bold">{isAdmin ? (form.name || 'Admin') : profile.name}</h1>
           <p className="text-xs text-slate-500">
