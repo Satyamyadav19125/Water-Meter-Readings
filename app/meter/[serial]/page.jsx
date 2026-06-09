@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser } from '@/lib/filter';
+import { getSettings } from '@/lib/db';
 import { getField, parseReading } from '@/lib/fieldMap';
 import { detectRedFlags, groupBySerial } from '@/lib/redflags';
 import SubmissionList from '@/components/SubmissionList';
@@ -14,11 +15,12 @@ export default async function MeterPage({ params }) {
   const serial = decodeURIComponent(resolvedParams.serial);
 
   let submissions = await fetchSubmissions();
+  const settings = await getSettings();
   submissions = await filterSubmissionsForUser(submissions);
 
   const groups = groupBySerial(submissions);
   const mine = groups[serial] || [];
-  const flags = detectRedFlags(submissions);
+  const flags = detectRedFlags(submissions, { enabled: settings?.redFlags });
 
   const sorted = [...mine].sort(
     (a, b) => new Date(b._submission_time).getTime() - new Date(a._submission_time).getTime()
