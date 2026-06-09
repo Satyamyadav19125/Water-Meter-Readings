@@ -2,7 +2,8 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser } from '@/lib/filter';
-import { getSettings } from '@/lib/db';
+import { getSettings, getVerifiedIds } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 import { getField, parseReading } from '@/lib/fieldMap';
 import { detectRedFlags, groupBySerial } from '@/lib/redflags';
 import SubmissionList from '@/components/SubmissionList';
@@ -15,7 +16,7 @@ export default async function MeterPage({ params }) {
   const serial = decodeURIComponent(resolvedParams.serial);
 
   let submissions = await fetchSubmissions();
-  const settings = await getSettings();
+  const [settings, verifiedIds, currentUser] = await Promise.all([getSettings(), getVerifiedIds(), getCurrentUser()]);
   submissions = await filterSubmissionsForUser(submissions);
 
   const groups = groupBySerial(submissions);
@@ -31,7 +32,7 @@ export default async function MeterPage({ params }) {
   const oldest = mine[0] ? parseReading(getField(mine[0], 'endReading')) : null;
   const totalUsage = (latest != null && oldest != null && !Number.isNaN(latest) && !Number.isNaN(oldest))
     ? Math.max(0, latest - oldest) : 0;
-  const flaggedHere = sorted.filter((s) => flags[s._id]).length;
+  const flaggedHere = sorted.filter((s) => flags[s._id] && !verifiedIds.has(String(s._id))).length;
 
   return (
     <div className="space-y-4">
@@ -56,21 +57,4 @@ export default async function MeterPage({ params }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
         <Stat label="Total submissions" value={mine.length} color="bg-slate-100" />
         <Stat label="Latest reading" value={latest ?? '—'} color="bg-brand-50" />
-        <Stat label="Total used" value={totalUsage.toLocaleString()} color="bg-emerald-50" />
-        <Stat label="Flagged" value={flaggedHere} color={flaggedHere > 0 ? 'bg-red-50' : 'bg-slate-50'} />
-      </div>
-
-      <h2 className="text-lg font-semibold pt-2">All submissions for this meter</h2>
-      <SubmissionList submissions={sorted} flags={flags} allSubmissions={submissions} />
-    </div>
-  );
-}
-
-function Stat({ label, value, color }) {
-  return (
-    <div className={`rounded-lg p-3 ${color}`}>
-      <div className="text-xl sm:text-2xl font-bold leading-tight tabular-nums">{value}</div>
-      <div className="text-xs text-slate-700 mt-0.5">{label}</div>
-    </div>
-  );
-}
+        <Stat label="Total used" value={total
