@@ -19,11 +19,15 @@ export default function MobileNav({ user, formUploadUrl }) {
 
   const isAdmin = user?.role === 'admin';
   const loggedIn = !!user;
-  const badge = isAdmin ? 'Admin' : user?.name;
+  const badge = user?.name || (isAdmin ? 'Admin' : '');
 
   const links = loggedIn
     ? (isAdmin
-        ? [...baseLinks, { href: '/settings', label: 'Settings', icon: '⚙️' }, { href: '/debug', label: 'Debug', icon: '🔧' }]
+        ? [...baseLinks,
+            { href: '/missed', label: 'Missed last week', icon: '📌' },
+            { href: '/settings', label: 'Settings', icon: '⚙️' },
+            { href: '/profile', label: 'My profile', icon: '👤' },
+            { href: '/debug', label: 'Debug', icon: '🔧' }]
         : [...baseLinks, { href: '/profile', label: 'My profile', icon: '👤' }])
     : [];
 
