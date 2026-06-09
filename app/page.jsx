@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { computeWeeklyStatus, deriveMeters, daysRemaining } from '@/lib/weekly';
 import { detectRedFlags } from '@/lib/redflags';
-import { getAssignments, isDbConfigured, getSettings, getMongoHealth } from '@/lib/db';
+import { getAssignments, isDbConfigured, getSettings, getMongoHealth, getVerifiedIds } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { filterSubmissionsForUser, filterAssignmentsForUser, splitOwn } from '@/lib/filter';
+import { filterSubmissionsForUser, filterAssignmentsForUser } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
 import { BarChart, DonutChart } from '@/components/SimpleCharts';
 import Landing from '@/components/Landing';
@@ -30,7 +30,7 @@ export default async function HomePage() {
       isDbConfigured() ? getAssignments() : Promise.resolve([]),
       getSettings(),
     ]);
-const health = getMongoHealth();
+    const health = getMongoHealth();
     if (health.configured && health.down) dbWarning = 'Database connection is failing (check MONGODB_URI password).';
   } catch (e) { dbWarning = e.message; }
 
@@ -44,12 +44,15 @@ const health = getMongoHealth();
     </div>
   );
 
-submissions = await filterSubmissionsForUser(submissions);
+  submissions = await filterSubmissionsForUser(submissions);
   assignments = await filterAssignmentsForUser(assignments);
 
-  const myReadings = currentUser.role === 'user' ? splitOwn(submissions, currentUser.name).mine.length : null;
+  let verifiedIds = new Set();
+  try { verifiedIds = await getVerifiedIds(); } catch {}
 
-  const flags = detectRedFlags(submissions, { enabled: settings?.redFlags });
+  const rawFlags = detectRedFlags(submissions, { enabled: settings?.redFlags });
+  const flags = {};
+  for (const id in rawFlags) { if (!verifiedIds.has(String(id))) flags[id] = rawFlags[id]; }
   const flaggedTotal = Object.keys(flags).length;
   const cleanTotal = submissions.length - flaggedTotal;
 
@@ -96,17 +99,12 @@ submissions = await filterSubmissionsForUser(submissions);
           <p className="text-sm text-slate-600">
             {currentUser.role === 'admin'
               ? 'Full admin access. Manage assignments, settings, and view all data.'
- : `You're assigned to ${currentUser.villages?.length || 0} village${currentUser.villages?.length === 1 ? '' : 's'}.`}
+              : `You're assigned to ${currentUser.villages?.length || 0} village${currentUser.villages?.length === 1 ? '' : 's'}.`}
           </p>
-          {currentUser.role === 'user' && (
-            <p className="text-xs text-slate-500 mt-1">
-              You've personally submitted <b className="text-brand-700">{myReadings}</b> of the <b>{submissions.length}</b> readings in your villages.
-            </p>
-          )}
         </div>
-        <Link href={currentUser.role === 'admin' ? '/settings' : '/profile'}
+        <Link href="/profile"
           className="hidden sm:inline-flex items-center gap-1 text-xs bg-white px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50">
-          ⚙️ {currentUser.role === 'admin' ? 'Settings' : 'Profile'}
+          👤 My profile
         </Link>
       </div>
 
