@@ -21,14 +21,20 @@ export default function MobileNav({ user, formUploadUrl }) {
   const loggedIn = !!user;
   const badge = user?.name || (isAdmin ? 'Admin' : '');
 
+  const sharedExtra = [
+    { href: '/tasks', label: 'Tasks', icon: '✅' },
+    { href: '/chat', label: 'Chat', icon: '💬' },
+  ];
+
   const links = loggedIn
     ? (isAdmin
         ? [...baseLinks,
             { href: '/missed', label: 'Missed last week', icon: '📌' },
+            ...sharedExtra,
             { href: '/settings', label: 'Settings', icon: '⚙️' },
             { href: '/profile', label: 'My profile', icon: '👤' },
             { href: '/debug', label: 'Debug', icon: '🔧' }]
-        : [...baseLinks, { href: '/profile', label: 'My profile', icon: '👤' }])
+        : [...baseLinks, ...sharedExtra, { href: '/profile', label: 'My profile', icon: '👤' }])
     : [];
 
   return (
