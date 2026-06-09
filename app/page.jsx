@@ -4,7 +4,7 @@ import { computeWeeklyStatus, deriveMeters, daysRemaining } from '@/lib/weekly';
 import { detectRedFlags } from '@/lib/redflags';
 import { getAssignments, isDbConfigured, getSettings, getMongoHealth } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { filterSubmissionsForUser, filterAssignmentsForUser } from '@/lib/filter';
+import { filterSubmissionsForUser, filterAssignmentsForUser, splitOwn } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
 import { BarChart, DonutChart } from '@/components/SimpleCharts';
 import Landing from '@/components/Landing';
