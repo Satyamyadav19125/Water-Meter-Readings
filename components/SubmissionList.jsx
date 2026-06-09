@@ -3,11 +3,31 @@
 import { useState } from 'react';
 import { getField } from '@/lib/fieldMap';
 
-export default function SubmissionList({ submissions, flags, allSubmissions }) {
+export default function SubmissionList({ submissions, flags, allSubmissions, canVerify = false, verifiedIds = [] }) {
   const [openId, setOpenId] = useState(null);
+  const [verified, setVerified] = useState(() => new Set(verifiedIds.map(String)));
+  const [busyId, setBusyId] = useState(null);
 
   const byId = {};
   for (const s of (allSubmissions || submissions)) byId[s._id] = s;
+
+  async function toggleVerify(id, makeVerified) {
+    setBusyId(id);
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: id, verified: makeVerified }),
+      });
+      if (res.ok) {
+        setVerified((prev) => {
+          const next = new Set(prev);
+          if (makeVerified) next.add(String(id)); else next.delete(String(id));
+          return next;
+        });
+      }
+    } catch {}
+    finally { setBusyId(null); }
+  }
 
   if (submissions.length === 0) {
     return <p className="text-slate-500 bg-white rounded-lg shadow p-6 text-center">No submissions match the current filter.</p>;
@@ -18,12 +38,17 @@ export default function SubmissionList({ submissions, flags, allSubmissions }) {
       {submissions.map((s) => {
         const isOpen = openId === s._id;
         const flag = flags[s._id];
+        const isVerified = verified.has(String(s._id));
         return (
           <SubmissionCard
             key={s._id}
             submission={s}
             isOpen={isOpen}
             flag={flag}
+            isVerified={isVerified}
+            canVerify={canVerify}
+            busy={busyId === s._id}
+            onToggleVerify={toggleVerify}
             onToggle={() => setOpenId(isOpen ? null : s._id)}
             byId={byId}
           />
@@ -33,21 +58,23 @@ export default function SubmissionList({ submissions, flags, allSubmissions }) {
   );
 }
 
-function SubmissionCard({ submission, isOpen, flag, onToggle, byId }) {
+function SubmissionCard({ submission, isOpen, flag, isVerified, canVerify, busy, onToggleVerify, onToggle, byId }) {
   const s = submission;
   const village = getField(s, 'village');
   const serial = getField(s, 'serial');
   const endR = getField(s, 'endReading');
   const surveyor = getField(s, 'surveyor');
   const time = new Date(s._submission_time);
-  const cardClass = flag ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200';
+  const showRed = flag && !isVerified;
+  const cardClass = showRed ? 'bg-red-50 border-red-200' : isVerified && flag ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200';
 
   return (
     <div className={`rounded-lg shadow-sm border overflow-hidden ${cardClass}`}>
       <button onClick={onToggle} className="w-full text-left p-3 sm:p-4 flex items-center gap-3 hover:bg-black/[0.02]">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
-            {flag && <span className="text-red-600">🚩</span>}
+            {showRed && <span className="text-red-600">🚩</span>}
+            {isVerified && flag && <span className="text-emerald-600" title="Marked correct by admin">✓</span>}
             <span className="font-medium truncate">{village || '—'}</span>
             {surveyor && <span className="text-xs text-slate-500 truncate">· {surveyor}</span>}
           </div>
@@ -64,30 +91,54 @@ function SubmissionCard({ submission, isOpen, flag, onToggle, byId }) {
           <path d="M6 9l6 6 6-6"/>
         </svg>
       </button>
-      {isOpen && <SubmissionDetail submission={s} flag={flag} byId={byId} />}
+      {isOpen && (
+        <SubmissionDetail
+          submission={s} flag={flag} isVerified={isVerified} canVerify={canVerify}
+          busy={busy} onToggleVerify={onToggleVerify} byId={byId}
+        />
+      )}
     </div>
   );
 }
 
-function SubmissionDetail({ submission, flag, byId }) {
+function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onToggleVerify, byId }) {
   const compareTarget = flag?.flags.find((f) => f.previousSubmissionId)?.previousSubmissionId;
   const previous = compareTarget ? byId[compareTarget] : null;
 
   return (
     <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4">
-      {flag && (
+      {flag && isVerified && (
+        <div className="bg-emerald-100 border border-emerald-300 rounded-lg p-3 text-emerald-900">
+          <div className="font-semibold mb-1 flex items-center gap-2">✓ Marked correct by admin</div>
+          <p className="text-sm">This submission was flagged automatically but an admin reviewed it and confirmed it's fine, so it no longer counts as a red flag.</p>
+          {canVerify && (
+            <button onClick={() => onToggleVerify(submission._id, false)} disabled={busy}
+              className="mt-2 text-xs px-3 py-1.5 rounded-lg border border-emerald-400 text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">
+              {busy ? 'Working…' : '↺ Undo — flag it again'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {flag && !isVerified && (
         <div className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-900">
           <div className="font-semibold mb-1.5 flex items-center gap-2">🚩 Red flag</div>
           <ul className="list-disc pl-5 text-sm space-y-1">
             {flag.flags.map((f, i) => <li key={i}><strong className="capitalize">{(f.type || '').replace(/_/g, ' ')}:</strong> {f.message}</li>)}
           </ul>
+          {canVerify && (
+            <button onClick={() => onToggleVerify(submission._id, true)} disabled={busy}
+              className="mt-2.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:opacity-50">
+              {busy ? 'Working…' : '✓ Mark this submission as correct'}
+            </button>
+          )}
         </div>
       )}
 
       {previous ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <SubmissionPanel label="Previous reading" submission={previous} highlight="emerald" />
-          <SubmissionPanel label="Current reading (flagged)" submission={submission} highlight="red" />
+          <SubmissionPanel label="Current reading" submission={submission} highlight={isVerified ? 'emerald' : 'red'} />
         </div>
       ) : (
         <SubmissionPanel label="Form data" submission={submission} />
