@@ -32,14 +32,18 @@ export default function TasksPage() {
     setLoading(true);
     setError('');
     try {
-      const a = await fetch('/api/auth/check').then((r) => r.json()).catch(() => ({}));
+      // All three requests fire AT THE SAME TIME — this is what makes the
+      // tab open fast instead of waiting for each call one after another.
+      const [a, t, list] = await Promise.all([
+        fetch('/api/auth/check').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/tasks').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/assignments').then((r) => r.json()).catch(() => ({})),
+      ]);
       const u = a && a.user ? a.user : null;
       setUser(u);
       if (u) {
-        const t = await fetch('/api/tasks').then((r) => r.json()).catch(() => ({}));
         setTasks(Array.isArray(t && t.tasks) ? t.tasks : []);
         if (u.role === 'admin') {
-          const list = await fetch('/api/assignments').then((r) => r.json()).catch(() => []);
           const arr = Array.isArray(list) ? list : (list && list.assignments) || [];
           const names = arr.map((p) => p.person).filter(Boolean);
           setPeople(names);
