@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { fetchSubmissions } from '@/lib/kobo';
+import { getCurrentUser } from '@/lib/auth';
 import { getField } from '@/lib/fieldMap';
 
-export const revalidate = 120;
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
+
   try {
     const subs = await fetchSubmissions();
     const villages = new Set();
