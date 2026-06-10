@@ -26,30 +26,37 @@ export default function MobileNav({ user, formUploadUrl }) {
     { href: '/chat', label: 'Chat', icon: '💬' },
   ];
 
+  // Full list (used in the mobile drawer). Profile appears ONCE, here.
   const links = loggedIn
     ? (isAdmin
         ? [...baseLinks,
-            { href: '/missed', label: 'Missed last week', icon: '📌' },
+            { href: '/missed', label: 'Missed readings', icon: '📌' },
             ...sharedExtra,
+            { href: '/data', label: 'Data & storage', icon: '🗄️' },
             { href: '/settings', label: 'Settings', icon: '⚙️' },
             { href: '/profile', label: 'My profile', icon: '👤' },
             { href: '/debug', label: 'Debug', icon: '🔧' }]
         : [...baseLinks, ...sharedExtra, { href: '/profile', label: 'My profile', icon: '👤' }])
     : [];
 
+  // Desktop top bar shows a shorter list (no profile — your NAME badge opens
+  // the profile) so links never overflow off-screen.
+  const desktopLinks = links.filter((l) => l.href !== '/profile');
+
   return (
     <>
       <header className="bg-gradient-to-r from-brand-900 via-brand-700 to-field-700 text-white sticky top-0 z-[1000] shadow-md">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-2">
           <Link href="/" className="flex items-center gap-2 font-semibold text-base flex-1 min-w-0">
             <span className="text-xl">💧🌾</span>
-            <span className="truncate">Water Meter Dashboard</span>
+            <span className="truncate hidden sm:inline">Water Meter Dashboard</span>
+            <span className="truncate sm:hidden">WaterMeter</span>
           </Link>
 
           {loggedIn && (
-            <nav className="hidden xl:flex items-center gap-1 text-sm">
-              {links.map((l) => (
-                <Link key={l.href} href={l.href} className={`px-2.5 py-1.5 rounded transition ${pathname === l.href ? 'bg-white/20' : 'hover:bg-white/10'}`}>
+            <nav className="hidden xl:flex items-center gap-0.5 text-sm">
+              {desktopLinks.map((l) => (
+                <Link key={l.href} href={l.href} className={`px-2 py-1.5 rounded transition whitespace-nowrap ${pathname === l.href ? 'bg-white/20' : 'hover:bg-white/10'}`}>
                   {l.label}
                 </Link>
               ))}
@@ -63,10 +70,18 @@ export default function MobileNav({ user, formUploadUrl }) {
           )}
 
           {loggedIn ? (
-            <button onClick={doLogout} title={`Logged in as ${badge} — click to log out`} className="px-3 py-1.5 rounded bg-white/15 hover:bg-red-500/40 text-sm font-medium flex items-center gap-1.5 transition">
-              <span className="hidden sm:inline">{badge}</span>
-              <span className="text-xs">⏻</span>
-            </button>
+            <>
+              {/* Tap your NAME to open your profile */}
+              <Link href="/profile" title="Open my profile"
+                className="px-3 py-1.5 rounded bg-white/15 hover:bg-white/25 text-sm font-medium flex items-center gap-1.5 transition max-w-[120px]">
+                {user?.photo
+                  ? <img src={user.photo} alt="" className="w-5 h-5 rounded-full object-cover border border-white/50" />
+                  : <span>👤</span>}
+                <span className="hidden sm:inline truncate">{badge}</span>
+              </Link>
+              <button onClick={doLogout} title="Log out"
+                className="p-2 rounded hover:bg-red-500/40 text-sm transition" aria-label="Log out">⏻</button>
+            </>
           ) : (
             <Link href="/login" className="px-4 py-1.5 rounded bg-white text-brand-900 hover:bg-brand-50 text-sm font-semibold">
               Log in
@@ -86,7 +101,7 @@ export default function MobileNav({ user, formUploadUrl }) {
       {open && loggedIn && (
         <div className="xl:hidden fixed inset-0 z-[1100] bg-black/40" onClick={() => setOpen(false)}>
           <div className="absolute top-14 right-0 w-72 bg-white shadow-xl rounded-bl-2xl overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 bg-gradient-to-r from-brand-50 to-field-50 text-brand-900 text-sm border-b flex items-center justify-between">
+            <Link href="/profile" onClick={() => setOpen(false)} className="px-4 py-3 bg-gradient-to-r from-brand-50 to-field-50 text-brand-900 text-sm border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {user?.photo ? (
                   <img src={user.photo} alt="" className="w-8 h-8 rounded-full object-cover border border-white" />
@@ -97,13 +112,11 @@ export default function MobileNav({ user, formUploadUrl }) {
                 )}
                 <div>
                   <div className="font-semibold leading-tight">{badge}</div>
-                  <div className="text-[10px] text-slate-500">{isAdmin ? 'Administrator' : 'Surveyor'}</div>
+                  <div className="text-[10px] text-slate-500">{isAdmin ? 'Administrator · tap for profile' : 'Surveyor · tap for profile'}</div>
                 </div>
               </div>
-              <button onClick={doLogout} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded font-medium hover:bg-red-200">
-                Log out
-              </button>
-            </div>
+              <span className="text-slate-400">›</span>
+            </Link>
 
             {formUploadUrl && (
               <a href={formUploadUrl} target="_blank" rel="noreferrer" className="px-4 py-3 bg-field-50 text-field-900 font-medium border-b border-slate-100 flex items-center gap-3">
@@ -119,6 +132,9 @@ export default function MobileNav({ user, formUploadUrl }) {
                   <span>{l.label}</span>
                 </Link>
               ))}
+              <button onClick={doLogout} className="px-4 py-3 flex items-center gap-3 text-red-600 text-left">
+                <span>⏻</span><span>Log out</span>
+              </button>
             </nav>
           </div>
         </div>
