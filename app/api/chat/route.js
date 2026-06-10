@@ -4,6 +4,9 @@ import { getMessages, sendMessage } from '@/lib/chat';
 
 export const dynamic = 'force-dynamic';
 
+// Who is allowed in a channel?
+//   'group'        -> any logged-in user (all admins + all assistants)
+//   'dm:<name>'    -> any admin, OR the assistant whose name === <name>
 function canAccess(user, channel) {
   if (!channel) return false;
   if (channel === 'group') return true;
@@ -39,7 +42,9 @@ export async function POST(request) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   const channel = body.channel || 'group';
   if (!canAccess(user, channel)) return NextResponse.json({ error: 'No access to this chat' }, { status: 403 });
-  if (!body.text || !String(body.text).trim()) return NextResponse.json({ error: 'Empty message' }, { status: 400 });
+  const hasText = body.text && String(body.text).trim();
+  const hasImage = typeof body.imageUrl === 'string' && body.imageUrl.startsWith('/api/media/');
+  if (!hasText && !hasImage) return NextResponse.json({ error: 'Empty message' }, { status: 400 });
 
   const msg = await sendMessage({
     channel,
@@ -47,6 +52,7 @@ export async function POST(request) {
     senderName: user.name || (user.role === 'admin' ? 'Admin' : 'Unknown'),
     senderRole: user.role,
     text: body.text,
+    imageUrl: body.imageUrl,
   });
   if (!msg) return NextResponse.json({ error: 'Could not send (database unavailable)' }, { status: 503 });
   return NextResponse.json({ message: msg });
