@@ -7,15 +7,17 @@ import { startOfWeek, endOfWeek, daysRemaining, readingDate } from '@/lib/weekly
 export const dynamic = 'force-dynamic';
 
 // Every meter in the user's villages with its read-count + status for a week.
-// Week is chosen by the reading's DATE field, not its upload time.
+// Week membership uses the reading's DATE field, not its upload time.
 //   ?week=this  (default) — the current week
-//   ?week=last           — last week (used by the admin "missed last week" view)
+//   ?week=last            — last week
+//   ?date=YYYY-MM-DD      — the week CONTAINING that date (admin week picker)
 export async function GET(request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const weekSel = (searchParams.get('week') || 'this').toLowerCase();
+  const dateParam = (searchParams.get('date') || '').trim();
 
   let submissions = [];
   try {
@@ -30,9 +32,15 @@ export async function GET(request) {
   }
 
   const now = new Date();
-  const ref = weekSel === 'last' ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) : now;
+  let ref = weekSel === 'last' ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) : now;
+  let mode = weekSel === 'last' ? 'last' : 'this';
+  if (dateParam) {
+    const t = Date.parse(dateParam);
+    if (!Number.isNaN(t)) { ref = new Date(t); mode = 'custom'; }
+  }
   const weekStart = startOfWeek(ref);
   const weekEnd = endOfWeek(ref);
+  const isCurrentWeek = now.getTime() >= weekStart.getTime() && now.getTime() < weekEnd.getTime();
 
   const meters = {};
   for (const s of submissions) {
@@ -90,10 +98,11 @@ export async function GET(request) {
 
   return NextResponse.json({
     villages, totals,
-    week: weekSel === 'last' ? 'last' : 'this',
+    week: mode,
     weekStart: weekStart.toISOString(),
     weekEnd: weekEnd.toISOString(),
-    daysLeft: weekSel === 'last' ? 0 : daysRemaining(now),
+    daysLeft: isCurrentWeek ? daysRemaining(now) : 0,
+    isCurrentWeek,
     role: user.role,
   });
 }
