@@ -14,9 +14,10 @@ async function parseJsonSafe(res) {
   try { return JSON.parse(text); } catch { return { error: text.slice(0, 200) }; }
 }
 
-// week = 'this' (default) | 'last' (missed-last-week view, admin)
-export default function MeterStatusTable({ week = 'this' }) {
-  const isLast = week === 'last';
+// week = 'this' (default) | 'last'
+// date = 'YYYY-MM-DD' -> overrides week, shows the week containing that date
+export default function MeterStatusTable({ week = 'this', date = '' }) {
+  const isLast = week === 'last' && !date;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,17 +26,21 @@ export default function MeterStatusTable({ week = 'this' }) {
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
     (async () => {
       try {
-        const res = await fetch(isLast ? '/api/meter-status?week=last' : '/api/meter-status');
+        let url = '/api/meter-status';
+        if (date) url += `?date=${encodeURIComponent(date)}`;
+        else if (week === 'last') url += '?week=last';
+        const res = await fetch(url);
         const d = await parseJsonSafe(res);
         if (!res.ok) throw new Error(d.error || 'Failed to load meters');
-        if (alive) setData(d);
+        if (alive) { setData(d); setError(null); }
       } catch (e) { if (alive) setError(e.message); }
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [isLast]);
+  }, [week, date]);
 
   const villages = useMemo(() => {
     if (!data?.villages) return [];
@@ -56,31 +61,36 @@ export default function MeterStatusTable({ week = 'this' }) {
   if (!data || data.totals.total === 0) {
     return (
       <div className="bg-white rounded-xl shadow-sm p-6 text-center text-slate-500 text-sm">
-        No meters found {isLast ? 'for last week' : 'in your villages yet'}.
+        No meters found for this week.
       </div>
     );
   }
 
   const t = data.totals;
   const missed = t.partial + t.pending;
+  const pastWeek = !data.isCurrentWeek;
   const weekStart = new Date(data.weekStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const weekEndShown = new Date(new Date(data.weekEnd).getTime() - 1).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const pct = t.total > 0 ? Math.round((t.done / t.total) * 100) : 0;
 
+  const title = pastWeek
+    ? (isLast ? '📌 Last week — missed readings' : '📌 Selected week — missed readings')
+    : '📋 This week\u2019s meter readings';
+
   return (
     <div className="space-y-3">
       {/* Summary header */}
-      <div className={`border rounded-xl p-4 ${isLast ? 'bg-rose-50 border-rose-100' : 'bg-gradient-to-br from-brand-50 to-field-50 border-brand-100'}`}>
+      <div className={`border rounded-xl p-4 ${pastWeek ? 'bg-rose-50 border-rose-100' : 'bg-gradient-to-br from-brand-50 to-field-50 border-brand-100'}`}>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <div className="font-semibold text-base">{isLast ? '📌 Last week — missed readings' : '📋 This week’s meter readings'}</div>
+            <div className="font-semibold text-base">{title}</div>
             <div className="text-xs text-slate-600 mt-0.5">
               {weekStart} – {weekEndShown} · each meter needs <b>2 readings</b>
-              {!isLast && <> · {data.daysLeft} day{data.daysLeft === 1 ? '' : 's'} left</>}
+              {!pastWeek && <> · {data.daysLeft} day{data.daysLeft === 1 ? '' : 's'} left</>}
             </div>
           </div>
           <div className="text-right">
-            {isLast ? (
+            {pastWeek ? (
               <>
                 <div className="text-2xl font-bold tabular-nums leading-none text-rose-700">{missed}</div>
                 <div className="text-[11px] text-slate-500">meters missed</div>
@@ -93,7 +103,7 @@ export default function MeterStatusTable({ week = 'this' }) {
             )}
           </div>
         </div>
-        {!isLast && (
+        {!pastWeek && (
           <div className="mt-3 h-2.5 bg-white/70 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
           </div>
@@ -108,7 +118,7 @@ export default function MeterStatusTable({ week = 'this' }) {
       {/* Controls */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex bg-white rounded-lg shadow-sm p-0.5 text-sm">
-          <FilterBtn active={filter === 'todo'} onClick={() => setFilter('todo')}>{isLast ? `Missed (${missed})` : `To do (${missed})`}</FilterBtn>
+          <FilterBtn active={filter === 'todo'} onClick={() => setFilter('todo')}>{pastWeek ? `Missed (${missed})` : `To do (${missed})`}</FilterBtn>
           <FilterBtn active={filter === 'all'} onClick={() => setFilter('all')}>All ({t.total})</FilterBtn>
           <FilterBtn active={filter === 'done'} onClick={() => setFilter('done')}>Done ({t.done})</FilterBtn>
         </div>
@@ -119,14 +129,14 @@ export default function MeterStatusTable({ week = 'this' }) {
       {/* Per-village lists */}
       {villages.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-6 text-center text-emerald-700 text-sm">
-          {isLast ? '🎉 Nothing was missed last week — every meter was read twice!' : '🎉 Nothing left to do — every meter has been read twice this week!'}
+          {pastWeek ? '🎉 Nothing was missed that week — every meter was read twice!' : '🎉 Nothing left to do — every meter has been read twice this week!'}
         </div>
       ) : villages.map((v) => (
         <div key={v.village} className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
             <div className="font-semibold text-sm flex items-center gap-2">🏘️ {v.village}</div>
             <div className="text-xs text-slate-500">
-              {isLast
+              {pastWeek
                 ? <span className="text-rose-600 font-medium">{v.partial + v.pending} missed</span>
                 : <span className="text-emerald-600 font-medium">{v.done} done</span>} · {v.total} meters
             </div>
@@ -147,7 +157,7 @@ export default function MeterStatusTable({ week = 'this' }) {
                   </div>
                   <div className="text-right shrink-0">
                     <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border font-medium ${st.chip}`}>{st.label}</span>
-                    <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisWeek, 2)}/2 {isLast ? 'last week' : 'this week'}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisWeek, 2)}/2 that week</div>
                   </div>
                 </li>
               );
