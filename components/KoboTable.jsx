@@ -2,18 +2,21 @@
 
 import { useMemo, useState } from 'react';
 
+// `mobile: false` columns are hidden on phones so the table fits the screen
+// without left-right scrolling; tap the row number (👁) to see everything.
 const COLUMNS = [
-  { key: 'validation', label: 'Validation', width: 110 },
-  { key: 'start', label: 'start', width: 150 },
-  { key: 'end', label: 'end', width: 150 },
-  { key: 'date', label: 'Date', width: 120 },
-  { key: 'time', label: 'time', width: 130 },
-  { key: 'gps', label: 'Surveyor location', width: 180 },
-  { key: 'surveyor', label: 'Surveyor name', width: 130 },
-  { key: 'village', label: 'Village', width: 120 },
-  { key: 'meter', label: 'Meter ID', width: 150 },
-  { key: 'reading', label: 'Reading', width: 110 },
+  { key: 'validation', label: 'Validation', width: 110, mobile: false },
+  { key: 'start', label: 'start', width: 150, mobile: false },
+  { key: 'end', label: 'end', width: 150, mobile: false },
+  { key: 'date', label: 'Date', width: 100, mobile: true },
+  { key: 'time', label: 'time', width: 130, mobile: false },
+  { key: 'gps', label: 'Surveyor location', width: 180, mobile: false },
+  { key: 'surveyor', label: 'Surveyor name', width: 110, mobile: false },
+  { key: 'village', label: 'Village', width: 90, mobile: true },
+  { key: 'meter', label: 'Meter ID', width: 110, mobile: true },
+  { key: 'reading', label: 'Reading', width: 80, mobile: true },
 ];
+const hideCls = (c) => (c.mobile ? '' : 'hidden md:table-cell');
 
 const PAGE_SIZES = [30, 50, 100];
 
@@ -53,12 +56,12 @@ export default function KoboTable({ rows }) {
       </div>
 
       <div className="overflow-x-auto scrollbar-thin">
-        <table className="text-sm border-collapse min-w-max">
+        <table className="text-sm border-collapse w-full md:min-w-max">
           <thead>
             <tr className="bg-slate-50 border-b-2 border-slate-200">
               <th className="sticky left-0 bg-slate-50 px-2 py-2 text-left text-xs font-semibold text-slate-600 w-12">#</th>
               {COLUMNS.map((c) => (
-                <th key={c.key} className="px-3 py-2 text-left text-xs font-semibold text-slate-600 align-top" style={{ minWidth: c.width }}>
+                <th key={c.key} className={`px-2 md:px-3 py-2 text-left text-xs font-semibold text-slate-600 align-top ${hideCls(c)}`} style={{ minWidth: c.width }}>
                   <div className="flex items-center gap-1 mb-1">{c.label}</div>
                   <input
                     value={search[c.key] || ''}
@@ -68,7 +71,7 @@ export default function KoboTable({ rows }) {
                   />
                 </th>
               ))}
-              <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Photo</th>
+              <th className="px-2 md:px-3 py-2 text-left text-xs font-semibold text-slate-600">📷</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -81,21 +84,21 @@ export default function KoboTable({ rows }) {
                     {safePage * pageSize + i + 1} 👁
                   </button>
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-2 md:px-3 py-2 hidden md:table-cell">
                   {r.validation
                     ? <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">{r.validation}</span>
                     : <span className="text-slate-300">–</span>}
                 </td>
-                <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{r.start}</td>
-                <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{r.end}</td>
-                <td className="px-3 py-2 whitespace-nowrap">{r.date}</td>
-                <td className="px-3 py-2 text-xs whitespace-nowrap">{r.time}</td>
-                <td className="px-3 py-2 text-xs font-mono text-slate-500 whitespace-nowrap">{r.gps}</td>
-                <td className="px-3 py-2 whitespace-nowrap">{r.surveyor}</td>
-                <td className="px-3 py-2 whitespace-nowrap">{r.village === 'Unknown' ? <span className="text-slate-300">–</span> : r.village}</td>
-                <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{r.meter}</td>
-                <td className="px-3 py-2 font-semibold tabular-nums">{r.reading}</td>
-                <td className="px-3 py-2">
+                <td className="px-2 md:px-3 py-2 text-xs text-slate-600 whitespace-nowrap hidden md:table-cell">{r.start}</td>
+                <td className="px-2 md:px-3 py-2 text-xs text-slate-600 whitespace-nowrap hidden md:table-cell">{r.end}</td>
+                <td className="px-2 md:px-3 py-2 whitespace-nowrap text-xs md:text-sm">{r.date}</td>
+                <td className="px-2 md:px-3 py-2 text-xs whitespace-nowrap hidden md:table-cell">{r.time}</td>
+                <td className="px-2 md:px-3 py-2 text-xs font-mono text-slate-500 whitespace-nowrap hidden md:table-cell">{r.gps}</td>
+                <td className="px-2 md:px-3 py-2 whitespace-nowrap hidden md:table-cell">{r.surveyor}</td>
+                <td className="px-2 md:px-3 py-2 whitespace-nowrap text-xs md:text-sm">{r.village === 'Unknown' ? <span className="text-slate-300">–</span> : r.village}</td>
+                <td className="px-2 md:px-3 py-2 font-mono text-xs whitespace-nowrap">{r.meter}</td>
+                <td className="px-2 md:px-3 py-2 font-semibold tabular-nums text-xs md:text-sm">{r.reading}</td>
+                <td className="px-2 md:px-3 py-2">
                   {r.photo
                     ? <button onClick={() => setLightbox(r.photo)} className="text-brand-600 text-xs hover:underline">📷 view</button>
                     : <span className="text-slate-300 text-xs">–</span>}
