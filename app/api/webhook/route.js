@@ -1,10 +1,10 @@
 // =====================================================================
 // Webhook receiver: Kobo POSTs to this URL when a new submission arrives.
-// We verify the shared secret, then revalidate cached pages.
+// We verify the shared secret, then bust the cached Kobo data + pages.
 // =====================================================================
 
 import { NextResponse } from 'next/server';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 
 export async function POST(request) {
   const url = new URL(request.url);
@@ -23,11 +23,17 @@ export async function POST(request) {
     body = null;
   }
 
-  // Force the cached pages to refresh on next visit
+  // THIS is the line that makes updates instant: lib/kobo.js caches all Kobo
+  // fetches under the 'kobo' tag for 30s — busting the tag forces a fresh
+  // fetch on the next page view, on EVERY page at once.
+  revalidateTag('kobo');
+
+  // Also refresh the rendered pages themselves.
   revalidatePath('/');
-  revalidatePath('/dashboard');
+  revalidatePath('/submissions');
+  revalidatePath('/usage');
+  revalidatePath('/map');
   revalidatePath('/kobo-view');
-  revalidatePath('/debug');
 
   console.log('[webhook] received submission', body?._id || '(no id)');
   return NextResponse.json({ ok: true });
