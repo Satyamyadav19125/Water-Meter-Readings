@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server';
 import { getAssignments, saveAssignments, isDbConfigured } from '@/lib/db';
-import { isAdmin } from '@/lib/auth';
+import { isAdmin, getCurrentUser } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 
 export const dynamic = 'force-dynamic';
 
+// SECURITY: this list contains login passwords and phone numbers.
+// - Admin: full list.
+// - Surveyor: only their OWN record, with the password stripped.
+// - Not logged in: nothing.
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
   if (!isDbConfigured()) {
     return NextResponse.json(
       { error: 'Database not configured. Add MONGODB_URI in Vercel → Settings → Environment Variables.' },
@@ -14,7 +20,11 @@ export async function GET() {
   }
   try {
     const list = await getAssignments();
-    return NextResponse.json({ assignments: list });
+    if (user.role === 'admin') return NextResponse.json({ assignments: list });
+    const own = list
+      .filter((a) => a.person === user.name)
+      .map(({ password, ...rest }) => rest);
+    return NextResponse.json({ assignments: own });
   } catch (e) {
     return NextResponse.json({ error: e.message, assignments: [] }, { status: 200 });
   }
