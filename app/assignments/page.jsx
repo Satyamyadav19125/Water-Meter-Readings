@@ -137,11 +137,9 @@ export default function AssignmentsPage() {
 
       {!user && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900"><a href="/login" className="underline font-medium">Log in</a> to view or manage assignments.</div>}
 
-      {/* Field assistant: weekly meter tracking is their primary view */}
-      {user && !isAdmin && <MeterStatusTable />}
-
+      {/* Field assistant: villages FIRST, weekly tracker after */}
       {user && !isAdmin && (
-        <h3 className="text-sm font-semibold text-slate-700 pt-2">🏘️ Your villages</h3>
+        <h3 className="text-sm font-semibold text-slate-700">🏘️ Your villages</h3>
       )}
 
       {isAdmin && unassignedSurveyors.length > 0 && (
@@ -238,6 +236,13 @@ export default function AssignmentsPage() {
           );
         })}
       </div>
+
+      {user && !isAdmin && (
+        <div className="pt-2">
+          <h3 className="text-sm font-semibold text-slate-700 mb-2">📋 Weekly meter tracker</h3>
+          <MeterStatusTable />
+        </div>
+      )}
 
       {isAdmin && (
         <button onClick={() => addPerson()} className="w-full bg-white border-2 border-dashed border-slate-300 rounded-xl py-4 text-slate-600 hover:border-brand-500 hover:text-brand-600 font-medium">
