@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import DataStorage from '@/components/DataStorage';
 
 const FLAG_LABELS = {
   rollback: 'Rollback (reading went backwards)',
@@ -15,7 +16,7 @@ const FLAG_LABELS = {
   duplicate_same_day: 'Same meter read twice in one day',
   missing_photo: 'Missing meter photo',
   invalid_meter_id: 'Invalid meter ID format (not WM######)',
-gps_outlier: 'GPS far from meter\'s usual spot',
+  gps_outlier: 'GPS far from meter\'s usual spot',
   digit_count: 'Digit-count jump (likely typo)',
   identical_gps: 'Same GPS used by different meters',
   fabrication_speed: 'Surveyor logged readings impossibly fast (<15s apart)',
@@ -97,6 +98,11 @@ export default function SettingsPage() {
       </div>
       {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2 text-sm">{message}</div>}
       {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm">{error}</div>}
+
+      {/* Data & storage (#15) */}
+      <Section title="🗄️ Data & storage" subtitle="MongoDB usage, monthly downloads, and old-data cleanup">
+        <DataStorage />
+      </Section>
 
       {/* Kobo forms */}
       <Section title="📋 Kobo forms" subtitle="Switch between seasonal forms (Kharif, Rabi, etc). Mark exactly one as active.">
