@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PhotoUpload from '@/components/PhotoUpload';
 import MeterStatusTable from '@/components/MeterStatusTable';
+import Lightbox from '@/components/Lightbox';
 
 // Never throw "Unexpected end of JSON input" on an empty/non-JSON response.
 async function parseJsonSafe(res) {
@@ -25,6 +26,7 @@ export default function AssignmentsPage() {
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
   const [showPasswords, setShowPasswords] = useState(false);
+  const [lb, setLb] = useState(null);
 
   const isAdmin = user?.role === 'admin';
 
@@ -137,6 +139,15 @@ export default function AssignmentsPage() {
 
       {!user && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900"><a href="/login" className="underline font-medium">Log in</a> to view or manage assignments.</div>}
 
+      {/* Admin: pending/done summary FIRST, people cards after */}
+      {isAdmin && (
+        <div>
+          <h3 className="text-base font-semibold text-slate-800 mb-2">📊 Meter tracking — all villages</h3>
+          <MeterStatusTable />
+          <h3 className="text-base font-semibold text-slate-800 mt-5 mb-1">👥 People & villages</h3>
+        </div>
+      )}
+
       {/* Field assistant: villages FIRST, weekly tracker after */}
       {user && !isAdmin && (
         <h3 className="text-sm font-semibold text-slate-700">🏘️ Your villages</h3>
@@ -163,7 +174,9 @@ export default function AssignmentsPage() {
               <div className="p-3 sm:p-4 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-brand-50/30">
                 <div className="flex items-center gap-3 mb-3">
                   {person.photo ? (
-                    <img src={person.photo} alt="" className="w-12 h-12 rounded-full object-cover border-2 border-white shadow" onError={(e) => { e.target.style.display = 'none'; }}/>
+                    <button type="button" onClick={() => setLb(person.photo)} title="Tap to view photo">
+                      <img src={person.photo} alt="" className="w-12 h-12 rounded-full object-cover border-2 border-white shadow cursor-zoom-in" onError={(e) => { e.target.style.display = 'none'; }}/>
+                    </button>
                   ) : (
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-brand-100 to-field-100 flex items-center justify-center text-xl">👤</div>
                   )}
@@ -250,13 +263,7 @@ export default function AssignmentsPage() {
         </button>
       )}
 
-      {isAdmin && (
-        <div className="pt-4 border-t border-slate-200">
-          <h3 className="text-base font-semibold text-slate-800 mb-2">📊 Meter tracking — all villages</h3>
-          <p className="text-xs text-slate-500 mb-3">Every meter and whether it has been read twice this week. This is the same view each field assistant sees, scoped to their own villages.</p>
-          <MeterStatusTable />
-        </div>
-      )}
+      {lb && <Lightbox src={lb} onClose={() => setLb(null)} label="Profile photo" />}
 
       <datalist id="surveyor-names">
         {surveyors.map((s) => <option key={s} value={s} />)}
