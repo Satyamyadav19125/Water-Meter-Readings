@@ -35,9 +35,11 @@ export default async function SubmissionsPage({ searchParams }) {
   const scopedAll = await filterSubmissionsForUser(allSubmissions);
   const allFlags = detectRedFlags(scopedAll, { enabled: settings?.redFlags });
   const isRed = (id) => !!allFlags[id] && !verifiedIds.has(String(id));
-  const redCount = scopedAll.filter((s) => isRed(s._id)).length;
 
   const filtered0 = applyUrlFilters(scopedAll, sp);
+  // Count flags WITHIN the current filters (e.g. surveyor=Yadav), so the
+  // chip shows that person's flags, not the global total.
+  const redCount = filtered0.filter((s) => isRed(s._id)).length;
   const flagFilter = sp.flag || 'all';
   const filtered = filtered0.filter((s) => {
     if (flagFilter === 'flagged') return isRed(s._id);
