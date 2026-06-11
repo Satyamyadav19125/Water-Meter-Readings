@@ -64,7 +64,11 @@ export default async function HomePage() {
     villageCounts[v] = (villageCounts[v] || 0) + 1;
     surveyorCounts[sv] = (surveyorCounts[sv] || 0) + 1;
   }
-  const uniqueVillages = Object.keys(villageCounts).length;
+  // For a surveyor, "Villages" must mean ASSIGNED villages (from the admin's
+  // assignment), not just villages that happen to have data yet.
+  const uniqueVillages = currentUser.role === 'user'
+    ? (currentUser.villages || []).length
+    : Object.keys(villageCounts).length;
   const uniqueSurveyors = Object.keys(surveyorCounts).length;
 
   const villageBars = Object.entries(villageCounts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 8);
@@ -113,7 +117,7 @@ export default async function HomePage() {
         <Kpi label="Clean readings" value={cleanTotal.toLocaleString()} color="bg-field-50 text-field-900" icon="✓" />
         <Kpi label="🚩 Flagged" value={flaggedTotal.toLocaleString()} color={flaggedTotal > 0 ? 'bg-red-50 text-red-900' : 'bg-slate-50 text-slate-700'} icon="" />
         <Kpi label="Quality rate" value={submissions.length > 0 ? `${Math.round((cleanTotal / submissions.length) * 100)}%` : '—'} color="bg-emerald-50 text-emerald-900" icon="📊" />
-        <Kpi label="Villages" value={uniqueVillages} color="bg-amber-50 text-amber-900" icon="🏘️" />
+        <Kpi label={currentUser.role === 'user' ? 'My villages' : 'Villages'} value={uniqueVillages} color="bg-amber-50 text-amber-900" icon="🏘️" />
         <Kpi label="Active surveyors" value={uniqueSurveyors} color="bg-violet-50 text-violet-900" icon="👤" />
         <Kpi label="This week" value={`${done}/${meters.length} done`} color="bg-sky-50 text-sky-900" icon="📅" />
         <Kpi label="Days left in week" value={remaining} color="bg-slate-100 text-slate-900" icon="⏳" />
