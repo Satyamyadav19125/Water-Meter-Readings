@@ -55,13 +55,13 @@ export default function KoboTable({ rows }) {
         )}
       </div>
 
-      <div className="overflow-x-auto scrollbar-thin">
+      <div className="overflow-auto scrollbar-thin max-h-[65vh] overscroll-contain">
         <table className="text-sm border-collapse w-full md:min-w-max">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="bg-slate-50 border-b-2 border-slate-200">
               <th className="sticky left-0 bg-slate-50 px-2 py-2 text-left text-xs font-semibold text-slate-600 w-12">#</th>
               {COLUMNS.map((c) => (
-                <th key={c.key} className={`px-2 md:px-3 py-2 text-left text-xs font-semibold text-slate-600 align-top ${hideCls(c)}`} style={{ minWidth: c.width }}>
+                <th key={c.key} className={`px-2 md:px-3 py-2 text-left text-xs font-semibold text-slate-600 align-top bg-slate-50 ${hideCls(c)}`} style={{ minWidth: c.width }}>
                   <div className="flex items-center gap-1 mb-1">{c.label}</div>
                   <input
                     value={search[c.key] || ''}
@@ -71,7 +71,7 @@ export default function KoboTable({ rows }) {
                   />
                 </th>
               ))}
-              <th className="px-2 md:px-3 py-2 text-left text-xs font-semibold text-slate-600">📷</th>
+              <th className="px-2 md:px-3 py-2 text-left text-xs font-semibold text-slate-600 bg-slate-50">📷</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
