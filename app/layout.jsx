@@ -16,6 +16,9 @@ export const viewport = {
   width: 'device-width', initialScale: 1, maximumScale: 1, userScalable: false, themeColor: '#0c4a6e',
 };
 
+// Runs BEFORE paint so the saved theme applies without a white/black flash.
+const themeInit = `try{if(localStorage.getItem('wmd-theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}`;
+
 export default async function RootLayout({ children }) {
   let user = null;
   let formUploadUrl = '';
@@ -28,7 +31,8 @@ export default async function RootLayout({ children }) {
   return (
     <html lang="en">
       <head>
-        <link rel="apple-touch-icon" href="/apple-icon.png" />
+        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
+        <link rel="apple-touch-icon" href="/apple-icon" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
