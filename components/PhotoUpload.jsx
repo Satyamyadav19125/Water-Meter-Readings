@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import Lightbox from '@/components/Lightbox';
 
 // Resizes an image file to max 400px, ~JPEG 0.8, returns a data URL.
 function resizeImage(file, maxDim = 400, quality = 0.8) {
@@ -29,6 +30,7 @@ function resizeImage(file, maxDim = 400, quality = 0.8) {
 export default function PhotoUpload({ value, onChange, label = 'Photo' }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [view, setView] = useState(false);
   const fileRef = useRef(null);
 
   async function handleFile(e) {
@@ -57,7 +59,9 @@ export default function PhotoUpload({ value, onChange, label = 'Photo' }) {
       <span className="block text-xs font-medium text-slate-600 mb-1">{label}</span>
       <div className="flex items-center gap-3">
         {value ? (
-          <img src={value} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-brand-200" onError={(e) => { e.target.style.display = 'none'; }} />
+          <button type="button" onClick={() => setView(true)} title="Tap to view photo">
+            <img src={value} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-brand-200 cursor-zoom-in" onError={(e) => { e.target.style.display = 'none'; }} />
+          </button>
         ) : (
           <div className="w-14 h-14 rounded-full bg-gradient-to-br from-brand-100 to-field-100 flex items-center justify-center text-xl">👤</div>
         )}
@@ -73,7 +77,8 @@ export default function PhotoUpload({ value, onChange, label = 'Photo' }) {
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
       </div>
       {err && <p className="text-xs text-red-600 mt-1">{err}</p>}
-      <p className="text-[10px] text-slate-400 mt-1">Stored securely in the project database. Auto-resized to keep it small.</p>
+      <p className="text-[10px] text-slate-400 mt-1">Tap the photo to view it full size. Auto-resized to keep it small.</p>
+      {view && <Lightbox src={value} onClose={() => setView(false)} label={label} />}
     </div>
   );
 }
