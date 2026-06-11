@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { getField } from '@/lib/fieldMap';
+import Lightbox from '@/components/Lightbox';
 
 export default function SubmissionList({ submissions, flags, allSubmissions, canVerify = false, verifiedIds = [] }) {
   const [openId, setOpenId] = useState(null);
@@ -148,6 +149,7 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
 }
 
 function SubmissionPanel({ label, submission, highlight }) {
+  const [lb, setLb] = useState(null);
   const photos = submission._attachments || [];
   const borderClass = highlight === 'red'
     ? 'border-red-300 bg-red-50'
@@ -175,16 +177,17 @@ function SubmissionPanel({ label, submission, highlight }) {
       {photos.length > 0 && (
         <div className="grid grid-cols-2 gap-2">
           {photos.slice(0, 2).map((a) => (
-            <a key={a.id} href={`/api/photo?url=${encodeURIComponent(a.download_url)}`} target="_blank" rel="noreferrer" className="block">
+            <button key={a.id} type="button" onClick={() => setLb(`/api/photo?url=${encodeURIComponent(a.download_url)}`)} className="block">
               <img
                 src={`/api/photo?url=${encodeURIComponent(a.download_small_url || a.download_url)}`}
                 alt={a.filename}
-                className="w-full h-36 object-cover rounded border border-slate-200"
+                className="w-full h-36 object-cover rounded border border-slate-200 cursor-zoom-in"
               />
-            </a>
+            </button>
           ))}
         </div>
       )}
+      {lb && <Lightbox src={lb} onClose={() => setLb(null)} label="Meter photo" />}
     </div>
   );
 }
