@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 async function parseJsonSafe(res) {
   const text = await res.text();
@@ -19,7 +21,6 @@ function timeLabel(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-// Resize an image to max 800px / JPEG 0.75 so it fits the media API limit.
 function resizeImage(file, maxDim = 800, quality = 0.75) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -42,7 +43,40 @@ function resizeImage(file, maxDim = 800, quality = 0.75) {
   });
 }
 
-const EMOJIS = ['😀','😂','👍','🙏','✅','❌','💧','🌾','🔥','🎉','❤️','😅','🤔','👏','🚩','📸','🏃','☔','☀️','💪'];
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+const MAX_FILE_BYTES = 240 * 1024; // ~240 KB (MongoDB free tier — keep files tiny)
+
+// ---- Full emoji picker, generated from Unicode ranges (no library needed) ----
+const EMOJI_CATS = [
+  { icon: '😀', label: 'Smileys', ranges: [[0x1F600, 0x1F64F], [0x1F910, 0x1F92F], [0x1F970, 0x1F97A]] },
+  { icon: '🙏', label: 'Hands', ranges: [[0x1F44A, 0x1F450], [0x1F590, 0x1F596], [0x1F918, 0x1F91F], [0x270A, 0x270D], [0x1F932, 0x1F932]] },
+  { icon: '❤️', label: 'Hearts', ranges: [[0x1F493, 0x1F49F], [0x2764, 0x2764], [0x1F5A4, 0x1F5A4], [0x1F90D, 0x1F90F], [0x1F498, 0x1F49C]] },
+  { icon: '🐻', label: 'Animals', ranges: [[0x1F400, 0x1F43F], [0x1F980, 0x1F997]] },
+  { icon: '🍔', label: 'Food', ranges: [[0x1F345, 0x1F37F], [0x1F950, 0x1F96B]] },
+  { icon: '⚽', label: 'Sport', ranges: [[0x1F3A0, 0x1F3C9], [0x1F94A, 0x1F94F], [0x26BD, 0x26BE]] },
+  { icon: '🚗', label: 'Travel', ranges: [[0x1F680, 0x1F6A4], [0x1F6B0, 0x1F6C5], [0x2600, 0x2604], [0x26C4, 0x26C5], [0x2614, 0x2614]] },
+  { icon: '💡', label: 'Objects', ranges: [[0x1F4A0, 0x1F4FC], [0x1F511, 0x1F53D], [0x2705, 0x2705], [0x274C, 0x274C], [0x2757, 0x2757], [0x26A0, 0x26A1]] },
+];
+function emojisFor(cat) {
+  const out = [];
+  for (const [a, b] of cat.ranges) {
+    for (let c = a; c <= b; c++) {
+      const s = String.fromCodePoint(c);
+      out.push(c < 0x1F000 ? s + '\uFE0F' : s);
+    }
+  }
+  return out;
+}
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 export default function ChatPage() {
   const [user, setUser] = useState(undefined);
@@ -55,13 +89,26 @@ export default function ChatPage() {
   const [error, setError] = useState('');
   const [showPlus, setShowPlus] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [emojiCat, setEmojiCat] = useState(0);
   const [lightbox, setLightbox] = useState(null);
+  const [docView, setDocView] = useState(null); // {url, name}
+  const [selectedId, setSelectedId] = useState(null);
+  const [editing, setEditing] = useState(null); // {id}
+  const [recording, setRecording] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
+  const [liveShare, setLiveShare] = useState(null); // {id}
   const scrollRef = useRef(null);
-  const fileRef = useRef(null);
+  const galleryRef = useRef(null);
+  const cameraRef = useRef(null);
+  const audioRef = useRef(null);
+  const docRef = useRef(null);
+  const recRef = useRef(null);
+  const liveTimerRef = useRef(null);
+
+  const emojiList = useMemo(() => emojisFor(EMOJI_CATS[emojiCat]), [emojiCat]);
 
   useEffect(() => {
     (async () => {
-      // Parallel: auth + assignments at the same time (faster open).
       const [a, asg] = await Promise.all([
         fetch('/api/auth/check').then((r) => r.json()).catch(() => ({})),
         fetch('/api/assignments').then((r) => r.json()).catch(() => ({})),
@@ -72,19 +119,15 @@ export default function ChatPage() {
       const list = [{ id: 'group', label: 'Everyone', icon: '👥' }];
       if (u.role === 'admin') {
         const people = Array.isArray(asg?.assignments) ? asg.assignments : [];
-        for (const p of people) {
-          if (p.person) list.push({ id: `dm:${p.person}`, label: p.person, icon: '👤' });
-        }
+        for (const p of people) if (p.person) list.push({ id: `dm:${p.person}`, label: p.person, icon: '👤' });
       } else {
         list.push({ id: `dm:${u.name}`, label: 'Admins (private)', icon: '🛡️' });
       }
       setChannels(list);
     })();
+    return () => { if (liveTimerRef.current) clearInterval(liveTimerRef.current); };
   }, []);
 
-  // Scroll ONLY the message container — never the page itself.
-  // (scrollIntoView was scrolling the whole document, which is why tapping
-  // a channel chip made the page jump down.)
   function scrollToBottom() {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -108,64 +151,213 @@ export default function ChatPage() {
     return () => clearInterval(t);
   }, [user, active, load]);
 
-  useEffect(() => { scrollToBottom(); }, [messages.length, active]);
+  const msgCount = messages.length;
+  useEffect(() => { scrollToBottom(); }, [msgCount, active]);
 
-  async function send({ imageUrl = '', forcedText = null } = {}) {
-    const clean = (forcedText !== null ? forcedText : text).trim();
-    if ((!clean && !imageUrl) || sending) return;
-    setSending(true);
-    if (forcedText === null) setText('');
-    setShowPlus(false); setShowEmoji(false);
-    const optimistic = { id: `tmp-${Date.now()}`, senderId: me, senderName: 'You', senderRole: user.role, text: clean, imageUrl, ts: new Date().toISOString(), _pending: true };
-    setMessages((m) => [...m, optimistic]);
-    try {
+  function closePanels() { setShowPlus(false); setShowEmoji(false); setSelectedId(null); }
+
+  // ---------- sending ----------
+  async function postMessage(payload) {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: active, ...payload }),
+    });
+    const d = await parseJsonSafe(res);
+    if (!res.ok) { setError(d.error || 'Could not send'); return null; }
+    await load(active);
+    return d.message || null;
+  }
+
+  async function send() {
+    const clean = text.trim();
+    if (!clean || sending) return;
+    setSending(true); setError(''); closePanels();
+    if (editing) {
       const res = await fetch('/api/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: active, text: clean, imageUrl }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editing.id, action: 'edit', text: clean }),
       });
       const d = await parseJsonSafe(res);
-      if (!res.ok) { setError(d.error || 'Could not send'); }
+      if (!res.ok) setError(d.error || 'Could not edit');
+      setEditing(null); setText('');
       await load(active);
-    } catch { setError('Could not send'); }
+    } else {
+      setText('');
+      await postMessage({ text: clean });
+    }
+    setSending(false);
+  }
+
+  async function uploadDataUrl(dataUrl) {
+    const res = await fetch('/api/media', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataUrl }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Upload failed');
+    return d.url;
+  }
+
+  async function sendImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(''); setSending(true); closePanels();
+    try {
+      const dataUrl = await resizeImage(file);
+      const url = await uploadDataUrl(dataUrl);
+      await postMessage({ kind: 'image', mediaUrl: url, text: text.trim() });
+      setText('');
+    } catch (e2) { setError(e2.message); }
+    finally { setSending(false); e.target.value = ''; }
+  }
+
+  async function sendRawFile(e, kind) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(''); closePanels();
+    if (file.size > MAX_FILE_BYTES) {
+      setError(`File is too big (${Math.round(file.size / 1024)} KB). Maximum is ${Math.round(MAX_FILE_BYTES / 1024)} KB on our free database — for bigger files please use WhatsApp/email.`);
+      e.target.value = '';
+      return;
+    }
+    setSending(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const url = await uploadDataUrl(dataUrl);
+      await postMessage({ kind, mediaUrl: url, fileName: file.name });
+    } catch (e2) { setError(e2.message); }
+    finally { setSending(false); e.target.value = ''; }
+  }
+
+  // ---------- voice note ----------
+  async function startRecording() {
+    setError(''); closePanels();
+    if (!navigator.mediaDevices?.getUserMedia) { setError('Microphone is not available in this browser.'); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : undefined);
+      const chunks = [];
+      rec.ondataavailable = (ev) => { if (ev.data.size) chunks.push(ev.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        if (rec._cancelled) return;
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        if (blob.size > MAX_FILE_BYTES) { setError('Voice note too long — keep it under ~1 minute.'); return; }
+        setSending(true);
+        try {
+          const dataUrl = await fileToDataUrl(blob);
+          const url = await uploadDataUrl(dataUrl);
+          await postMessage({ kind: 'audio', mediaUrl: url, fileName: 'voice-note' });
+        } catch (e2) { setError(e2.message); }
+        finally { setSending(false); }
+      };
+      recRef.current = rec;
+      rec.start();
+      setRecording(true); setRecSecs(0);
+      const t0 = Date.now();
+      const tick = setInterval(() => {
+        const s = Math.floor((Date.now() - t0) / 1000);
+        setRecSecs(s);
+        if (s >= 60) { clearInterval(tick); if (recRef.current?.state === 'recording') recRef.current.stop(); }
+        if (recRef.current?.state !== 'recording') clearInterval(tick);
+      }, 500);
+    } catch { setError('Could not access the microphone. Allow mic permission and try again.'); }
+  }
+  function stopRecording(cancel = false) {
+    const rec = recRef.current;
+    if (rec && rec.state === 'recording') { rec._cancelled = cancel; rec.stop(); }
+    setRecording(false);
+  }
+
+  // ---------- location ----------
+  function getPosition() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) return reject(new Error('Location is not available on this device.'));
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => reject(new Error('Could not get your location. Allow location access and try again.')),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  }
+
+  async function sendCurrentLocation() {
+    setError(''); closePanels(); setSending(true);
+    try {
+      const { lat, lng } = await getPosition();
+      await postMessage({ text: `📍 My location: https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}` });
+    } catch (e2) { setError(e2.message); }
     finally { setSending(false); }
   }
 
-  async function sendPhoto(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError('');
+  async function startLiveLocation() {
+    setError(''); closePanels(); setSending(true);
     try {
-      const dataUrl = await resizeImage(file);
-      const res = await fetch('/api/media', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataUrl }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Photo upload failed');
-      await send({ imageUrl: d.url, forcedText: text });
-      setText('');
+      const { lat, lng } = await getPosition();
+      const msg = await postMessage({ kind: 'live', live: { lat, lng } });
+      if (msg?.id) {
+        setLiveShare({ id: msg.id });
+        const started = Date.now();
+        liveTimerRef.current = setInterval(async () => {
+          if (Date.now() - started > EDIT_WINDOW_MS) { stopLiveLocation(msg.id); return; }
+          try {
+            const p = await getPosition();
+            await fetch('/api/chat', {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: msg.id, action: 'live_update', lat: p.lat, lng: p.lng }),
+            });
+          } catch {}
+        }, 30000);
+      }
     } catch (e2) { setError(e2.message); }
-    finally { if (fileRef.current) fileRef.current.value = ''; }
+    finally { setSending(false); }
+  }
+  async function stopLiveLocation(id) {
+    if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
+    setLiveShare(null);
+    await fetch('/api/chat', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action: 'live_end' }),
+    }).catch(() => {});
+    load(active);
   }
 
-  function sendLocation() {
-    setError('');
-    if (!navigator.geolocation) { setError('Location is not available on this device/browser.'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        send({ forcedText: `📍 My location: https://www.google.com/maps?q=${latitude.toFixed(6)},${longitude.toFixed(6)}` });
-      },
-      () => setError('Could not get your location. Allow location access and try again.'),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+  // ---------- message actions ----------
+  async function react(id, emoji) {
+    setSelectedId(null);
+    await fetch('/api/chat', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action: 'react', emoji }),
+    }).catch(() => {});
+    load(active);
+  }
+
+  function beginEdit(m) {
+    setSelectedId(null);
+    setEditing({ id: m.id });
+    setText(m.text || '');
+  }
+
+  async function doDelete(id, mode) {
+    setSelectedId(null);
+    const label = mode === 'everyone' ? 'Delete this message for EVERYONE?' : 'Delete this message for you only?';
+    if (!confirm(label)) return;
+    const res = await fetch('/api/chat', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, mode }),
+    });
+    const d = await parseJsonSafe(res);
+    if (!res.ok) setError(d.error || 'Could not delete');
+    load(active);
   }
 
   function onKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
-  // Turn URLs in a message into tappable links (used for 📍 location).
   function renderText(t) {
     const parts = String(t).split(/(https?:\/\/[^\s]+)/g);
     return parts.map((p, i) =>
@@ -197,7 +389,7 @@ export default function ChatPage() {
     <div className="space-y-2">
       <div className="flex gap-2 overflow-x-auto pb-1">
         {channels.map((c) => (
-          <button key={c.id} onClick={() => setActive(c.id)}
+          <button key={c.id} onClick={() => { setActive(c.id); closePanels(); }}
             className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border transition flex items-center gap-1.5 ${
               active === c.id ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
             }`}>
@@ -217,7 +409,7 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2" style={{ background: '#eef2f6' }}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 chat-bg">
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center text-center text-slate-400 text-sm">
               No messages yet. Say hello 👋
@@ -228,25 +420,101 @@ export default function ChatPage() {
                 <span className="text-[11px] bg-white/80 text-slate-500 px-2 py-0.5 rounded-full shadow-sm">{g.day}</span>
               </div>
               {g.items.map((m) => {
-                const mine = m.senderId === me || m._pending;
+                const mine = m.senderId === me;
+                const canModify = mine && !m.deleted && (Date.now() - new Date(m.ts).getTime() <= EDIT_WINDOW_MS);
+                const reactions = m.reactions || {};
+                const liveActive = m.kind === 'live' && m.live && !m.live.ended && Date.now() < new Date(m.live.until).getTime();
                 return (
-                  <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-3 py-2 shadow-sm ${mine ? 'bg-field-600 text-white rounded-br-sm' : 'bg-white text-slate-800 rounded-bl-sm'}`}>
+                  <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                    <button onClick={() => setSelectedId(selectedId === m.id ? null : m.id)}
+                      className={`max-w-[80%] text-left rounded-2xl px-3 py-2 shadow-sm ${mine ? 'bg-field-600 text-white rounded-br-sm' : 'bg-white text-slate-800 rounded-bl-sm'}`}>
                       {!mine && (
                         <div className={`text-[11px] font-semibold mb-0.5 ${m.senderRole === 'admin' ? 'text-brand-700' : 'text-field-700'}`}>
                           {m.senderName}{m.senderRole === 'admin' ? ' · admin' : ''}
                         </div>
                       )}
-                      {m.imageUrl && (
-                        <button onClick={() => setLightbox(m.imageUrl)} className="block mb-1">
-                          <img src={m.imageUrl} alt="" className="rounded-lg max-h-56 w-auto cursor-zoom-in" loading="lazy" />
-                        </button>
+
+                      {m.deleted ? (
+                        <div className={`text-sm italic ${mine ? 'text-white/70' : 'text-slate-400'}`}>🚫 This message was deleted</div>
+                      ) : (
+                        <>
+                          {m.kind === 'image' && m.mediaUrl && (
+                            <span onClick={(e) => { e.stopPropagation(); setLightbox(m.mediaUrl); }} className="block mb-1 cursor-zoom-in">
+                              <img src={m.mediaUrl} alt="" className="rounded-lg max-h-56 w-auto" loading="lazy" />
+                            </span>
+                          )}
+                          {m.kind === 'audio' && m.mediaUrl && (
+                            <audio controls src={m.mediaUrl} className="w-52 sm:w-64 my-1" onClick={(e) => e.stopPropagation()} />
+                          )}
+                          {m.kind === 'file' && m.mediaUrl && (
+                            <span onClick={(e) => { e.stopPropagation(); setDocView({ url: `${m.mediaUrl}?name=${encodeURIComponent(m.fileName || 'file')}`, name: m.fileName || 'Document' }); }}
+                              className={`flex items-center gap-2 my-1 px-3 py-2 rounded-lg cursor-pointer ${mine ? 'bg-white/15' : 'bg-slate-100'}`}>
+                              <span className="text-2xl">📄</span>
+                              <span className="text-sm font-medium break-all">{m.fileName || 'Document'}</span>
+                            </span>
+                          )}
+                          {m.kind === 'live' && m.live && (
+                            <span className="block my-1">
+                              <a href={`https://www.google.com/maps?q=${m.live.lat},${m.live.lng}`} target="_blank" rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg ${mine ? 'bg-white/15' : 'bg-slate-100'}`}>
+                                <span className="text-2xl">{liveActive ? '📡' : '📍'}</span>
+                                <span className="text-sm">
+                                  <b>{liveActive ? 'Live location' : 'Live location (ended)'}</b><br />
+                                  <span className={`text-xs ${mine ? 'text-white/70' : 'text-slate-500'}`}>
+                                    {liveActive ? `Updating until ${timeLabel(m.live.until)} · tap to open map` : 'Tap to see last position'}
+                                  </span>
+                                </span>
+                              </a>
+                              {liveActive && mine && liveShare?.id === m.id && (
+                                <span onClick={(e) => { e.stopPropagation(); stopLiveLocation(m.id); }}
+                                  className="inline-block mt-1 text-xs underline cursor-pointer">⏹ Stop sharing</span>
+                              )}
+                            </span>
+                          )}
+                          {m.text && <div className="text-sm whitespace-pre-wrap break-words">{renderText(m.text)}</div>}
+                        </>
                       )}
-                      {m.text && <div className="text-sm whitespace-pre-wrap break-words">{renderText(m.text)}</div>}
+
                       <div className={`text-[10px] mt-0.5 text-right ${mine ? 'text-white/70' : 'text-slate-400'}`}>
-                        {m._pending ? 'sending…' : timeLabel(m.ts)}
+                        {m.editedAt ? 'edited · ' : ''}{timeLabel(m.ts)}
                       </div>
-                    </div>
+                    </button>
+
+                    {/* reactions chips */}
+                    {Object.keys(reactions).length > 0 && (
+                      <div className={`flex gap-1 mt-0.5 ${mine ? 'justify-end' : ''}`}>
+                        {Object.entries(reactions).map(([e, who]) => (
+                          <button key={e} onClick={() => react(m.id, e)}
+                            className={`text-xs px-1.5 py-0.5 rounded-full border shadow-sm ${who.includes(me) ? 'bg-brand-100 border-brand-300' : 'bg-white border-slate-200'}`}>
+                            {e} {who.length}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* action menu */}
+                    {selectedId === m.id && !m.deleted && (
+                      <div className="mt-1 bg-white rounded-xl shadow-lg border border-slate-200 p-2 flex flex-col gap-1.5 z-10">
+                        <div className="flex gap-1">
+                          {QUICK_REACTIONS.map((e) => (
+                            <button key={e} onClick={() => react(m.id, e)} className="text-xl px-1 hover:scale-125 transition">{e}</button>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 flex-wrap text-xs">
+                          {canModify && m.kind === 'text' && (
+                            <button onClick={() => beginEdit(m)} className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200">✏️ Edit</button>
+                          )}
+                          {canModify && (
+                            <button onClick={() => doDelete(m.id, 'everyone')} className="px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100">🗑 Delete for everyone</button>
+                          )}
+                          <button onClick={() => doDelete(m.id, 'me')} className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200">🙈 Delete for me</button>
+                        </div>
+                        {mine && !canModify && (
+                          <div className="text-[10px] text-slate-400">Edit & delete-for-everyone work for 15 minutes after sending.</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -254,20 +522,51 @@ export default function ChatPage() {
           ))}
         </div>
 
-        {/* Emoji quick row */}
+        {/* full emoji picker */}
         {showEmoji && (
-          <div className="border-t border-slate-100 px-2 py-1.5 flex gap-1 overflow-x-auto bg-white shrink-0">
-            {EMOJIS.map((e) => (
-              <button key={e} onClick={() => setText((t) => t + e)} className="text-xl px-1.5 py-0.5 hover:bg-slate-100 rounded">{e}</button>
-            ))}
+          <div className="border-t border-slate-100 bg-white shrink-0">
+            <div className="flex gap-1 px-2 pt-1.5 overflow-x-auto">
+              {EMOJI_CATS.map((c, i) => (
+                <button key={c.label} onClick={() => setEmojiCat(i)}
+                  className={`px-2 py-1 rounded-lg text-lg ${emojiCat === i ? 'bg-brand-100' : 'hover:bg-slate-100'}`} title={c.label}>{c.icon}</button>
+              ))}
+            </div>
+            <div className="h-36 overflow-y-auto px-2 py-1.5 grid grid-cols-8 sm:grid-cols-12 gap-0.5">
+              {emojiList.map((e, i) => (
+                <button key={i} onClick={() => setText((t) => t + e)} className="text-xl py-0.5 hover:bg-slate-100 rounded">{e}</button>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Plus / attach menu */}
+        {/* attach menu */}
         {showPlus && (
-          <div className="border-t border-slate-100 px-3 py-2 flex gap-2 bg-white shrink-0">
-            <button onClick={() => fileRef.current?.click()} className="attach-btn">📷<span>Photo</span></button>
-            <button onClick={sendLocation} className="attach-btn">📍<span>Location</span></button>
+          <div className="border-t border-slate-100 px-3 py-2 flex gap-2 flex-wrap bg-white shrink-0">
+            <button onClick={() => galleryRef.current?.click()} className="attach-btn">🖼️<span>Gallery</span></button>
+            <button onClick={() => cameraRef.current?.click()} className="attach-btn">📸<span>Camera</span></button>
+            <button onClick={startRecording} className="attach-btn">🎤<span>Voice</span></button>
+            <button onClick={() => audioRef.current?.click()} className="attach-btn">🎵<span>Audio</span></button>
+            <button onClick={() => docRef.current?.click()} className="attach-btn">📄<span>Document</span></button>
+            <button onClick={sendCurrentLocation} className="attach-btn">📍<span>Location</span></button>
+            <button onClick={startLiveLocation} className="attach-btn">📡<span>Live (15m)</span></button>
+          </div>
+        )}
+
+        {/* recording bar */}
+        {recording && (
+          <div className="border-t border-red-100 bg-red-50 px-3 py-2 flex items-center gap-3 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-sm text-red-800 flex-1">Recording voice note… {recSecs}s / 60s</span>
+            <button onClick={() => stopRecording(true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-red-300 text-red-700">Cancel</button>
+            <button onClick={() => stopRecording(false)} className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white font-medium">⏹ Send</button>
+          </div>
+        )}
+
+        {/* editing banner */}
+        {editing && (
+          <div className="border-t border-amber-100 bg-amber-50 px-3 py-1.5 flex items-center gap-2 text-xs text-amber-900 shrink-0">
+            ✏️ Editing message…
+            <button onClick={() => { setEditing(null); setText(''); }} className="ml-auto underline">Cancel</button>
           </div>
         )}
 
@@ -281,18 +580,23 @@ export default function ChatPage() {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder="Type a message…"
+            placeholder={editing ? 'Edit your message…' : 'Type a message…'}
             className="flex-1 resize-none px-3 py-2 text-sm border border-slate-300 rounded-2xl max-h-32 focus:outline-none focus:ring-2 focus:ring-brand-300"
           />
-          <button onClick={() => send()} disabled={sending || !text.trim()}
+          <button onClick={send} disabled={sending || !text.trim()}
             className="shrink-0 w-10 h-10 rounded-full bg-field-600 text-white flex items-center justify-center hover:bg-field-700 disabled:bg-slate-300">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            {editing
+              ? <span className="text-base">✓</span>
+              : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>}
           </button>
-          <input ref={fileRef} type="file" accept="image/*" onChange={sendPhoto} className="hidden" />
+          <input ref={galleryRef} type="file" accept="image/*" onChange={sendImage} className="hidden" />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={sendImage} className="hidden" />
+          <input ref={audioRef} type="file" accept="audio/*" onChange={(e) => sendRawFile(e, 'audio')} className="hidden" />
+          <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" onChange={(e) => sendRawFile(e, 'file')} className="hidden" />
         </div>
       </div>
 
-      {/* Image lightbox */}
+      {/* image lightbox */}
       {lightbox && (
         <div className="fixed inset-0 z-[1300] bg-black/85 flex flex-col" onClick={() => setLightbox(null)}>
           <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
@@ -302,6 +606,18 @@ export default function ChatPage() {
           <div className="flex-1 flex items-center justify-center p-4 overflow-auto" onClick={() => setLightbox(null)}>
             <img src={lightbox} alt="" className="max-w-full max-h-full rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
           </div>
+        </div>
+      )}
+
+      {/* document viewer with Back */}
+      {docView && (
+        <div className="fixed inset-0 z-[1300] bg-black/85 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 text-white">
+            <button onClick={() => setDocView(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-sm font-medium">← Back</button>
+            <span className="text-sm truncate px-2">{docView.name}</span>
+            <a href={`${docView.url}&dl=1`} className="text-xs text-white/80 underline whitespace-nowrap">⬇ Download</a>
+          </div>
+          <iframe src={docView.url} title={docView.name} className="flex-1 bg-white rounded-t-xl" />
         </div>
       )}
 
