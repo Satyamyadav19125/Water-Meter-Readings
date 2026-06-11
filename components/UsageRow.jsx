@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { getField } from '@/lib/fieldMap';
+import Lightbox from '@/components/Lightbox';
 
 export default function UsageRow({ entry, previous, current, flag }) {
   const [open, setOpen] = useState(false);
@@ -54,6 +55,7 @@ export default function UsageRow({ entry, previous, current, flag }) {
 }
 
 function Panel({ label, submission, color }) {
+  const [lb, setLb] = useState(null);
   if (!submission) {
     return <div className="rounded border border-slate-200 bg-white p-3 text-xs text-slate-400">Not found</div>;
   }
@@ -78,16 +80,17 @@ function Panel({ label, submission, color }) {
       {photos.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5 mt-2">
           {photos.slice(0, 2).map((a) => (
-            <a key={a.id} href={`/api/photo?url=${encodeURIComponent(a.download_url)}`} target="_blank" rel="noreferrer">
+            <button key={a.id} type="button" onClick={() => setLb(`/api/photo?url=${encodeURIComponent(a.download_url)}`)}>
               <img
                 src={`/api/photo?url=${encodeURIComponent(a.download_small_url || a.download_url)}`}
                 alt={a.filename}
-                className="w-full h-28 object-cover rounded border border-slate-200"
+                className="w-full h-28 object-cover rounded border border-slate-200 cursor-zoom-in"
               />
-            </a>
+            </button>
           ))}
         </div>
       )}
+      {lb && <Lightbox src={lb} onClose={() => setLb(null)} label="Meter photo" />}
     </div>
   );
 }
