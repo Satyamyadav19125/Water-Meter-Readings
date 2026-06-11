@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const baseLinks = [
   { href: '/', label: 'Overview', icon: '🏠' },
@@ -10,7 +11,8 @@ const baseLinks = [
   { href: '/usage', label: 'Usage', icon: '💧' },
   { href: '/map', label: 'Map', icon: '🗺️' },
   { href: '/kobo-view', label: 'Kobo View', icon: '🪞' },
-  { href: '/assignments', label: 'Assignments', icon: '👥' },
+  { href: '/team', label: 'Team', icon: '👥' },
+  { href: '/chat', label: 'Chat', icon: '💬' },
 ];
 
 export default function MobileNav({ user, formUploadUrl }) {
@@ -21,22 +23,14 @@ export default function MobileNav({ user, formUploadUrl }) {
   const loggedIn = !!user;
   const badge = user?.name || (isAdmin ? 'Admin' : '');
 
-  const sharedExtra = [
-    { href: '/tasks', label: 'Tasks', icon: '✅' },
-    { href: '/chat', label: 'Chat', icon: '💬' },
-  ];
-
   // Full list (used in the mobile drawer). Profile appears ONCE, here.
   const links = loggedIn
     ? (isAdmin
         ? [...baseLinks,
-            { href: '/missed', label: 'Missed readings', icon: '📌' },
-            ...sharedExtra,
-            { href: '/data', label: 'Data & storage', icon: '🗄️' },
             { href: '/settings', label: 'Settings', icon: '⚙️' },
             { href: '/profile', label: 'My profile', icon: '👤' },
             { href: '/debug', label: 'Debug', icon: '🔧' }]
-        : [...baseLinks, ...sharedExtra, { href: '/profile', label: 'My profile', icon: '👤' }])
+        : [...baseLinks, { href: '/profile', label: 'My profile', icon: '👤' }])
     : [];
 
   // Desktop top bar shows a shorter list (no profile — your NAME badge opens
@@ -68,6 +62,8 @@ export default function MobileNav({ user, formUploadUrl }) {
               ➕ <span className="hidden md:inline">New reading</span>
             </a>
           )}
+
+          <ThemeToggle />
 
           {loggedIn ? (
             <>
