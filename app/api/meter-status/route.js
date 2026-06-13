@@ -1,16 +1,19 @@
 import { NextResponse } from 'next/server';
 import { fetchSubmissions } from '@/lib/kobo';
 import { getCurrentUser } from '@/lib/auth';
+import { getSettings } from '@/lib/db';
 import { getField, parseReading } from '@/lib/fieldMap';
 import { startOfWeek, endOfWeek, daysRemaining, readingDate } from '@/lib/weekly';
 
 export const dynamic = 'force-dynamic';
 
-// Every meter in the user's villages with its read-count + status for a week.
-// Week membership uses the reading's DATE field, not its upload time.
-//   ?week=this  (default) — the current week
-//   ?week=last            — last week
-//   ?date=YYYY-MM-DD      — the week CONTAINING that date (admin week picker)
+// Every meter in the user's villages with its read-count + status for a period.
+// Period membership uses the reading's DATE field, not its upload time.
+//   ?week=this  (default) — the current period
+//   ?week=last            — the period BEFORE the current one
+//   ?date=YYYY-MM-DD      — the period CONTAINING that date (admin date picker)
+// Period length and target count come from admin settings (reading.target /
+// reading.periodDays). Default is 2 readings per 7-day week.
 export async function GET(request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
@@ -20,11 +23,16 @@ export async function GET(request) {
   const dateParam = (searchParams.get('date') || '').trim();
 
   let submissions = [];
+  let settings;
   try {
-    submissions = await fetchSubmissions();
+    [submissions, settings] = await Promise.all([fetchSubmissions(), getSettings()]);
   } catch (e) {
     return NextResponse.json({ error: e.message, villages: [] }, { status: 200 });
   }
+
+  const target = Math.max(1, Number(settings?.reading?.target) || 2);
+  const periodDays = Math.max(1, Number(settings?.reading?.periodDays) || 7);
+  const periodLabel = String(settings?.reading?.periodLabel || 'week');
 
   let allowed = null;
   if (user.role === 'user') {
@@ -32,15 +40,26 @@ export async function GET(request) {
   }
 
   const now = new Date();
-  let ref = weekSel === 'last' ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) : now;
-  let mode = weekSel === 'last' ? 'last' : 'this';
+  let ref = now;
+  let mode = 'this';
+  if (weekSel === 'last') {
+    ref = new Date(now.getTime() - periodDays * 86400000);
+    mode = 'last';
+  }
   if (dateParam) {
     const t = Date.parse(dateParam);
     if (!Number.isNaN(t)) { ref = new Date(t); mode = 'custom'; }
   }
-  const weekStart = startOfWeek(ref);
-  const weekEnd = endOfWeek(ref);
-  const isCurrentWeek = now.getTime() >= weekStart.getTime() && now.getTime() < weekEnd.getTime();
+
+  let periodStart, periodEnd;
+  if (periodDays === 7) {
+    periodStart = startOfWeek(ref);
+    periodEnd = endOfWeek(ref);
+  } else {
+    periodEnd = endOfWeek(ref);
+    periodStart = new Date(periodEnd.getTime() - periodDays * 86400000);
+  }
+  const isCurrent = now.getTime() >= periodStart.getTime() && now.getTime() < periodEnd.getTime();
 
   const meters = {};
   for (const s of submissions) {
@@ -51,16 +70,14 @@ export async function GET(request) {
 
     const key = `${village}|||${serial}`;
     if (!meters[key]) {
-      meters[key] = { serial, village, countThisWeek: 0, lastReading: null, lastDate: null, lastSurveyor: null, lastTs: 0 };
+      meters[key] = { serial, village, countThisPeriod: 0, lastReading: null, lastDate: null, lastSurveyor: null, lastTs: 0 };
     }
     const m = meters[key];
 
-    // Week membership is decided by the reading DATE, not the upload time.
     const rt = readingDate(s).getTime();
-    if (!Number.isNaN(rt) && rt >= weekStart.getTime() && rt < weekEnd.getTime()) {
-      m.countThisWeek += 1;
+    if (!Number.isNaN(rt) && rt >= periodStart.getTime() && rt < periodEnd.getTime()) {
+      m.countThisPeriod += 1;
     }
-    // "Last reading" still tracks the most recently uploaded reading overall.
     const upTs = new Date(s._submission_time).getTime();
     if (!Number.isNaN(upTs) && upTs > m.lastTs) {
       m.lastTs = upTs;
@@ -74,8 +91,8 @@ export async function GET(request) {
   const byVillage = {};
   for (const key in meters) {
     const m = meters[key];
-    const status = m.countThisWeek >= 2 ? 'done' : m.countThisWeek === 1 ? 'partial' : 'pending';
-    const row = { serial: m.serial, countThisWeek: m.countThisWeek, status, lastReading: m.lastReading, lastDate: m.lastDate, lastSurveyor: m.lastSurveyor };
+    const status = m.countThisPeriod >= target ? 'done' : m.countThisPeriod > 0 ? 'partial' : 'pending';
+    const row = { serial: m.serial, countThisPeriod: m.countThisPeriod, status, lastReading: m.lastReading, lastDate: m.lastDate, lastSurveyor: m.lastSurveyor };
     if (!byVillage[m.village]) byVillage[m.village] = [];
     byVillage[m.village].push(row);
   }
@@ -96,13 +113,18 @@ export async function GET(request) {
     { done: 0, partial: 0, pending: 0, total: 0 }
   );
 
+  const daysLeft = isCurrent
+    ? Math.max(0, Math.floor((periodEnd.getTime() - now.getTime()) / 86400000))
+    : 0;
+
   return NextResponse.json({
     villages, totals,
     week: mode,
-    weekStart: weekStart.toISOString(),
-    weekEnd: weekEnd.toISOString(),
-    daysLeft: isCurrentWeek ? daysRemaining(now) : 0,
-    isCurrentWeek,
+    target, periodDays, periodLabel,
+    weekStart: periodStart.toISOString(),
+    weekEnd: periodEnd.toISOString(),
+    daysLeft,
+    isCurrentWeek: isCurrent,
     role: user.role,
   });
 }
