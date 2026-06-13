@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Lightbox from '@/components/Lightbox';
 
-// Resizes an image file to max 400px, ~JPEG 0.8, returns a data URL.
-function resizeImage(file, maxDim = 400, quality = 0.8) {
+// Resize an image file using admin-configured resolution. Photo type can be
+// 'profile' (small, ~600 px default) or 'meter' (HD, ~1600 px default).
+function resizeImage(file, maxDim, quality) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -16,6 +17,8 @@ function resizeImage(file, maxDim = 400, quality = 0.8) {
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
+        // 'high' is the sharpest setting modern browsers offer
+        if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL('image/jpeg', quality));
       };
@@ -27,18 +30,35 @@ function resizeImage(file, maxDim = 400, quality = 0.8) {
   });
 }
 
-export default function PhotoUpload({ value, onChange, label = 'Photo' }) {
+export default function PhotoUpload({ value, onChange, label = 'Photo', kind = 'profile' }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [view, setView] = useState(false);
+  const [maxDim, setMaxDim] = useState(kind === 'profile' ? 600 : 1600);
+  const [quality, setQuality] = useState(kind === 'profile' ? 0.88 : 0.85);
   const fileRef = useRef(null);
+
+  // Pull admin-configured photo settings (one fetch per mount).
+  useEffect(() => {
+    fetch('/api/settings').then((r) => r.json()).then((d) => {
+      const r = d?.settings?.reading;
+      if (!r) return;
+      if (kind === 'profile') {
+        setMaxDim(Number(r.profilePhotoMaxPx) || 600);
+        setQuality(Number(r.profilePhotoQuality) || 0.88);
+      } else {
+        setMaxDim(Number(r.photoMaxPx) || 1600);
+        setQuality(Number(r.photoQuality) || 0.85);
+      }
+    }).catch(() => {});
+  }, [kind]);
 
   async function handleFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
     setErr(null); setBusy(true);
     try {
-      const dataUrl = await resizeImage(file);
+      const dataUrl = await resizeImage(file, maxDim, quality);
       const res = await fetch('/api/media', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dataUrl }),
@@ -77,7 +97,7 @@ export default function PhotoUpload({ value, onChange, label = 'Photo' }) {
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
       </div>
       {err && <p className="text-xs text-red-600 mt-1">{err}</p>}
-      <p className="text-[10px] text-slate-400 mt-1">Tap the photo to view it full size. Auto-resized to keep it small.</p>
+      <p className="text-[10px] text-slate-400 mt-1">Tap the photo to view it full size. Resized to {maxDim} px to balance HD and database space.</p>
       {view && <Lightbox src={value} onClose={() => setView(false)} label={label} />}
     </div>
   );
