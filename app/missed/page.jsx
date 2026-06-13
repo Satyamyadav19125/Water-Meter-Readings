@@ -8,11 +8,17 @@ function isoDaysAgo(n) {
 }
 
 export default function MissedPage() {
-  const [user, setUser] = useState(undefined); // undefined = loading
-  const [date, setDate] = useState(''); // empty = last week (default)
+  const [user, setUser] = useState(undefined);
+  const [date, setDate] = useState('');
+  const [periodDays, setPeriodDays] = useState(7);
+  const [periodLabel, setPeriodLabel] = useState('week');
 
   useEffect(() => {
     fetch('/api/auth/check').then((r) => r.json()).then((d) => setUser(d.user || null)).catch(() => setUser(null));
+    fetch('/api/settings').then((r) => r.json()).then((d) => {
+      const r = d?.settings?.reading;
+      if (r) { setPeriodDays(Number(r.periodDays) || 7); setPeriodLabel(String(r.periodLabel || 'week')); }
+    }).catch(() => {});
   }, []);
 
   if (user === undefined) return <div className="h-40 bg-white rounded-xl shadow-sm animate-pulse" />;
@@ -22,24 +28,25 @@ export default function MissedPage() {
     </div>
   );
 
+  const step = Math.max(1, periodDays);
+
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-semibold">📌 Missed readings</h2>
         <p className="text-sm text-slate-500">
-          Meters that were NOT read twice in the selected week. Pick any date — you'll see the whole week containing it.
+          Meters that didn't hit their target in the selected {periodLabel}. Pick any date — you'll see the whole {periodLabel} containing it.
         </p>
       </div>
 
-      {/* Week picker */}
       <div className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-2 flex-wrap">
-        <label className="text-xs font-medium text-slate-600">📅 Show week of:</label>
+        <label className="text-xs font-medium text-slate-600">📅 Show {periodLabel} of:</label>
         <input type="date" value={date} max={isoDaysAgo(0)} onChange={(e) => setDate(e.target.value)}
           className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm" />
         <div className="flex gap-1.5 ml-auto">
-          <QuickBtn active={!date} onClick={() => setDate('')}>Last week</QuickBtn>
-          <QuickBtn active={date === isoDaysAgo(14)} onClick={() => setDate(isoDaysAgo(14))}>2 weeks ago</QuickBtn>
-          <QuickBtn active={date === isoDaysAgo(21)} onClick={() => setDate(isoDaysAgo(21))}>3 weeks ago</QuickBtn>
+          <QuickBtn active={!date} onClick={() => setDate('')}>Last {periodLabel}</QuickBtn>
+          <QuickBtn active={date === isoDaysAgo(step * 2)} onClick={() => setDate(isoDaysAgo(step * 2))}>2 {periodLabel}s ago</QuickBtn>
+          <QuickBtn active={date === isoDaysAgo(step * 3)} onClick={() => setDate(isoDaysAgo(step * 3))}>3 {periodLabel}s ago</QuickBtn>
         </div>
       </div>
 
