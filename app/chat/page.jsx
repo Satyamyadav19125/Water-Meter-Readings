@@ -21,7 +21,7 @@ function timeLabel(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-function resizeImage(file, maxDim = 800, quality = 0.75) {
+function resizeImage(file, maxDim = 1600, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -32,7 +32,9 @@ function resizeImage(file, maxDim = 800, quality = 0.75) {
         else if (height > maxDim) { width = Math.round((width * maxDim) / height); height = maxDim; }
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        const ctx = canvas.getContext('2d');
+        if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL('image/jpeg', quality));
       };
       img.onerror = reject;
@@ -52,9 +54,8 @@ function fileToDataUrl(file) {
   });
 }
 
-const MAX_FILE_BYTES = 240 * 1024; // ~240 KB (MongoDB free tier — keep files tiny)
+const MAX_FILE_BYTES = 1500 * 1024; // ~1.5 MB ceiling on the free MongoDB tier
 
-// ---- Full emoji picker, generated from Unicode ranges (no library needed) ----
 const EMOJI_CATS = [
   { icon: '😀', label: 'Smileys', ranges: [[0x1F600, 0x1F64F], [0x1F910, 0x1F92F], [0x1F970, 0x1F97A]] },
   { icon: '🙏', label: 'Hands', ranges: [[0x1F44A, 0x1F450], [0x1F590, 0x1F596], [0x1F918, 0x1F91F], [0x270A, 0x270D], [0x1F932, 0x1F932]] },
@@ -91,12 +92,14 @@ export default function ChatPage() {
   const [showEmoji, setShowEmoji] = useState(false);
   const [emojiCat, setEmojiCat] = useState(0);
   const [lightbox, setLightbox] = useState(null);
-  const [docView, setDocView] = useState(null); // {url, name}
+  const [docView, setDocView] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
-  const [editing, setEditing] = useState(null); // {id}
+  const [editing, setEditing] = useState(null);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
-  const [liveShare, setLiveShare] = useState(null); // {id}
+  const [liveShare, setLiveShare] = useState(null);
+  const [photoMaxPx, setPhotoMaxPx] = useState(1600);
+  const [photoQuality, setPhotoQuality] = useState(0.85);
   const scrollRef = useRef(null);
   const galleryRef = useRef(null);
   const cameraRef = useRef(null);
@@ -109,10 +112,16 @@ export default function ChatPage() {
 
   useEffect(() => {
     (async () => {
-      const [a, asg] = await Promise.all([
+      const [a, asg, st] = await Promise.all([
         fetch('/api/auth/check').then((r) => r.json()).catch(() => ({})),
         fetch('/api/assignments').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/settings').then((r) => r.json()).catch(() => ({})),
       ]);
+      const r = st?.settings?.reading;
+      if (r) {
+        setPhotoMaxPx(Number(r.photoMaxPx) || 1600);
+        setPhotoQuality(Number(r.photoQuality) || 0.85);
+      }
       const u = a && a.user ? a.user : null;
       setUser(u);
       if (!u) return;
@@ -156,7 +165,6 @@ export default function ChatPage() {
 
   function closePanels() { setShowPlus(false); setShowEmoji(false); setSelectedId(null); }
 
-  // ---------- sending ----------
   async function postMessage(payload) {
     const res = await fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -203,7 +211,7 @@ export default function ChatPage() {
     if (!file) return;
     setError(''); setSending(true); closePanels();
     try {
-      const dataUrl = await resizeImage(file);
+      const dataUrl = await resizeImage(file, photoMaxPx, photoQuality);
       const url = await uploadDataUrl(dataUrl);
       await postMessage({ kind: 'image', mediaUrl: url, text: text.trim() });
       setText('');
@@ -229,7 +237,6 @@ export default function ChatPage() {
     finally { setSending(false); e.target.value = ''; }
   }
 
-  // ---------- voice note ----------
   async function startRecording() {
     setError(''); closePanels();
     if (!navigator.mediaDevices?.getUserMedia) { setError('Microphone is not available in this browser.'); return; }
@@ -272,7 +279,6 @@ export default function ChatPage() {
     setRecording(false);
   }
 
-  // ---------- location ----------
   function getPosition() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(new Error('Location is not available on this device.'));
@@ -325,7 +331,6 @@ export default function ChatPage() {
     load(active);
   }
 
-  // ---------- message actions ----------
   async function react(id, emoji) {
     setSelectedId(null);
     await fetch('/api/chat', {
@@ -481,7 +486,6 @@ export default function ChatPage() {
                       </div>
                     </button>
 
-                    {/* reactions chips */}
                     {Object.keys(reactions).length > 0 && (
                       <div className={`flex gap-1 mt-0.5 ${mine ? 'justify-end' : ''}`}>
                         {Object.entries(reactions).map(([e, who]) => (
@@ -493,7 +497,6 @@ export default function ChatPage() {
                       </div>
                     )}
 
-                    {/* action menu */}
                     {selectedId === m.id && !m.deleted && (
                       <div className="mt-1 bg-white rounded-xl shadow-lg border border-slate-200 p-2 flex flex-col gap-1.5 z-10">
                         <div className="flex gap-1">
@@ -522,7 +525,6 @@ export default function ChatPage() {
           ))}
         </div>
 
-        {/* full emoji picker */}
         {showEmoji && (
           <div className="border-t border-slate-100 bg-white shrink-0">
             <div className="flex gap-1 px-2 pt-1.5 overflow-x-auto">
@@ -539,7 +541,6 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* attach menu */}
         {showPlus && (
           <div className="border-t border-slate-100 px-3 py-2 flex gap-2 flex-wrap bg-white shrink-0">
             <button onClick={() => galleryRef.current?.click()} className="attach-btn">🖼️<span>Gallery</span></button>
@@ -552,7 +553,6 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* recording bar */}
         {recording && (
           <div className="border-t border-red-100 bg-red-50 px-3 py-2 flex items-center gap-3 shrink-0">
             <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
@@ -562,7 +562,6 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* editing banner */}
         {editing && (
           <div className="border-t border-amber-100 bg-amber-50 px-3 py-1.5 flex items-center gap-2 text-xs text-amber-900 shrink-0">
             ✏️ Editing message…
@@ -596,7 +595,6 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* image lightbox */}
       {lightbox && (
         <div className="fixed inset-0 z-[1300] bg-black/85 flex flex-col" onClick={() => setLightbox(null)}>
           <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
@@ -609,7 +607,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* document viewer with Back */}
       {docView && (
         <div className="fixed inset-0 z-[1300] bg-black/85 flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 text-white">
