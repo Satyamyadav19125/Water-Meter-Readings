@@ -34,7 +34,7 @@ function lastNMonths(n = 12) {
 }
 
 // iOS-style storage gauge + monthly archives + cleanup.
-// Lives inside the admin Settings page (#15).
+// Lives inside the admin Settings page.
 export default function DataStorage() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
@@ -75,10 +75,21 @@ export default function DataStorage() {
   if (loading) return <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />;
   if (error && !stats) return <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">{error}</div>;
 
-  const used = stats.dataSize;
-  const limit = stats.limitBytes;
+  // Defensive: if /api/storage ever returns the wrong shape, fall back to safe
+  // defaults instead of crashing the whole Settings page.
+  const used = Number(stats?.dataSize) || 0;
+  const limit = Number(stats?.limitBytes) || 512 * 1024 * 1024;
   const pct = Math.min(100, (used / limit) * 100);
-  const cols = [...stats.collections].sort((a, b) => b.size - a.size);
+  const cols = Array.isArray(stats?.collections)
+    ? [...stats.collections].sort((a, b) => b.size - a.size)
+    : [];
+  if (!Array.isArray(stats?.collections)) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-900">
+        Storage info unavailable. The Settings page is fine; this section just couldn't load stats.
+      </div>
+    );
+  }
   const months = lastNMonths(12);
 
   return (
