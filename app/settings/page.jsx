@@ -99,9 +99,19 @@ export default function SettingsPage() {
       {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2 text-sm">{message}</div>}
       {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm">{error}</div>}
 
-      {/* Data & storage (#15) */}
+      {/* Data & storage */}
       <Section title="🗄️ Data & storage" subtitle="MongoDB usage, monthly downloads, and old-data cleanup">
         <DataStorage />
+      </Section>
+
+      {/* Reading targets */}
+      <Section title="🎯 Reading targets" subtitle="How many readings each meter needs, and how often">
+        <ReadingTargets settings={settings} setSettings={setSettings} />
+      </Section>
+
+      {/* Photo quality */}
+      <Section title="🖼️ Photo quality" subtitle="Larger photos = more HD, but use more database space">
+        <PhotoQuality settings={settings} setSettings={setSettings} />
       </Section>
 
       {/* Kobo forms */}
@@ -210,5 +220,100 @@ function Toggle({ label, checked, onChange }) {
       <span>{label}</span>
       <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4"/>
     </label>
+  );
+}
+
+const PERIOD_PRESETS = [
+  { label: 'Week (7 days)', periodDays: 7, periodLabel: 'week' },
+  { label: '10 days',       periodDays: 10, periodLabel: '10-day' },
+  { label: 'Month (30 days)', periodDays: 30, periodLabel: 'month' },
+  { label: 'Custom…',       periodDays: -1, periodLabel: 'period' },
+];
+
+function ReadingTargets({ settings, setSettings }) {
+  const r = settings.reading || {};
+  const isCustom = ![7, 10, 30].includes(Number(r.periodDays) || 7);
+  function set(k, v) { setSettings({ ...settings, reading: { ...r, [k]: v } }); }
+  function pickPreset(p) {
+    if (p.periodDays === -1) { set('periodDays', Math.max(1, Number(r.periodDays) || 14)); set('periodLabel', 'period'); return; }
+    setSettings({ ...settings, reading: { ...r, periodDays: p.periodDays, periodLabel: p.periodLabel } });
+  }
+  const example = (Number(r.target) || 2) === 1
+    ? `Each meter needs 1 reading every ${r.periodLabel || 'week'} (${r.periodDays || 7} days).`
+    : `Each meter needs ${r.target || 2} readings every ${r.periodLabel || 'week'} (${r.periodDays || 7} days).`;
+
+  return (
+    <div className="space-y-3">
+      <Field label="How many readings per period?">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input type="number" min="1" max="50" value={r.target ?? 2}
+            onChange={(e) => set('target', Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+            className="input w-24 tabular-nums" />
+          <span className="text-sm text-slate-600">reading{(r.target || 2) === 1 ? '' : 's'} per meter</span>
+        </div>
+      </Field>
+
+      <Field label="How long is one period?">
+        <div className="flex gap-1.5 flex-wrap">
+          {PERIOD_PRESETS.map((p) => {
+            const active = p.periodDays === -1 ? isCustom : Number(r.periodDays) === p.periodDays;
+            return (
+              <button key={p.label} type="button" onClick={() => pickPreset(p)}
+                className={`px-3 py-1.5 rounded-full text-sm border transition ${active ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'}`}>
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+
+      {isCustom && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Days in one period">
+            <input type="number" min="1" max="365" value={r.periodDays ?? 7}
+              onChange={(e) => set('periodDays', Math.max(1, Math.min(365, Number(e.target.value) || 1)))}
+              className="input tabular-nums" />
+          </Field>
+          <Field label="Period name (what the dashboard calls it)">
+            <input value={r.periodLabel || 'period'} onChange={(e) => set('periodLabel', e.target.value.slice(0, 20))} placeholder="period" className="input" />
+          </Field>
+        </div>
+      )}
+
+      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-blue-900">
+        <b>Effect:</b> {example} The Overview, Assignments, Team and Missed Readings pages all use this target to decide when a meter is "Done".
+      </div>
+    </div>
+  );
+}
+
+function PhotoQuality({ settings, setSettings }) {
+  const r = settings.reading || {};
+  function set(k, v) { setSettings({ ...settings, reading: { ...r, [k]: v } }); }
+  const meterKB = Math.round(((r.photoMaxPx || 1600) ** 2 * (r.photoQuality || 0.85) * 0.18) / 1024);
+  const profileKB = Math.round(((r.profilePhotoMaxPx || 600) ** 2 * (r.profilePhotoQuality || 0.88) * 0.18) / 1024);
+  return (
+    <div className="space-y-3">
+      <Field label="Meter photo — max width/height (pixels)">
+        <input type="range" min="400" max="3000" step="100" value={r.photoMaxPx || 1600}
+          onChange={(e) => set('photoMaxPx', Number(e.target.value))} className="w-full" />
+        <div className="text-xs text-slate-600 mt-1">{r.photoMaxPx || 1600} px · about {Math.max(20, meterKB)} KB per photo</div>
+      </Field>
+      <Field label="Meter photo — JPEG quality">
+        <input type="range" min="0.4" max="0.98" step="0.02" value={r.photoQuality || 0.85}
+          onChange={(e) => set('photoQuality', Number(e.target.value))} className="w-full" />
+        <div className="text-xs text-slate-600 mt-1">{Math.round((r.photoQuality || 0.85) * 100)}% quality</div>
+      </Field>
+      <div className="border-t border-slate-100 pt-3">
+        <Field label="Profile photo — max width/height (pixels)">
+          <input type="range" min="200" max="1200" step="50" value={r.profilePhotoMaxPx || 600}
+            onChange={(e) => set('profilePhotoMaxPx', Number(e.target.value))} className="w-full" />
+          <div className="text-xs text-slate-600 mt-1">{r.profilePhotoMaxPx || 600} px · about {Math.max(8, profileKB)} KB per photo</div>
+        </Field>
+      </div>
+      <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-sm text-amber-900">
+        <b>Database budget:</b> the free MongoDB tier is 512 MB total. At 1600 px the meter photos are sharp and zoom-friendly; at 2400 px they're near-original phone quality. Profile photos are small so 600 px is plenty.
+      </div>
+    </div>
   );
 }
