@@ -37,8 +37,31 @@ export default function SettingsPage() {
     setLoading(true);
     const res = await fetch('/api/settings');
     const data = await res.json();
-    if (data.settings) setSettings(data.settings);
-    else setError(data.error || 'Failed to load');
+    if (data.settings) {
+      // Defensive: legacy DB documents may be missing newer sub-objects.
+      // Fill them with safe defaults so the page never crashes on access.
+      setSettings({
+        contact: {}, redFlags: {}, project: {}, forms: [],
+        reading: {
+          target: 2, periodLabel: 'week', periodDays: 7,
+          photoMaxPx: 1600, photoQuality: 0.85,
+          profilePhotoMaxPx: 600, profilePhotoQuality: 0.88,
+        },
+        ...data.settings,
+        contact: { ...(data.settings.contact || {}) },
+        redFlags: { ...(data.settings.redFlags || {}) },
+        project: { ...(data.settings.project || {}) },
+        forms: Array.isArray(data.settings.forms) ? data.settings.forms : [],
+        reading: {
+          target: 2, periodLabel: 'week', periodDays: 7,
+          photoMaxPx: 1600, photoQuality: 0.85,
+          profilePhotoMaxPx: 600, profilePhotoQuality: 0.88,
+          ...(data.settings.reading || {}),
+        },
+      });
+    } else {
+      setError(data.error || 'Failed to load');
+    }
     setLoading(false);
   }
 
@@ -144,24 +167,24 @@ export default function SettingsPage() {
       {/* Project info */}
       <Section title="🌱 Project info">
         <Field label="Project name">
-          <input value={settings.project.name} onChange={(e) => updateProject('name', e.target.value)} className="input"/>
+          <input value={settings.project.name || ''} onChange={(e) => updateProject('name', e.target.value)} className="input"/>
         </Field>
         <Field label="Tagline">
-          <input value={settings.project.tagline} onChange={(e) => updateProject('tagline', e.target.value)} className="input"/>
+          <input value={settings.project.tagline || ''} onChange={(e) => updateProject('tagline', e.target.value)} className="input"/>
         </Field>
         <Field label="Description (shown on landing)">
-          <textarea value={settings.project.description} onChange={(e) => updateProject('description', e.target.value)} rows="3" className="input"/>
+          <textarea value={settings.project.description || ''} onChange={(e) => updateProject('description', e.target.value)} rows="3" className="input"/>
         </Field>
         <Field label="Kobo form upload URL (the 'New reading' button)">
-          <input value={settings.project.formUploadUrl} onChange={(e) => updateProject('formUploadUrl', e.target.value)} placeholder="https://ee.kobotoolbox.org/x/..." className="input"/>
+          <input value={settings.project.formUploadUrl || ''} onChange={(e) => updateProject('formUploadUrl', e.target.value)} placeholder="https://ee.kobotoolbox.org/x/..." className="input"/>
         </Field>
       </Section>
 
       {/* Contact */}
       <Section title="📬 Contact info">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Admin email"><input value={settings.contact.adminEmail} onChange={(e) => updateContact('adminEmail', e.target.value)} className="input"/></Field>
-          <Field label="Lead researcher email"><input value={settings.contact.leadEmail} onChange={(e) => updateContact('leadEmail', e.target.value)} className="input"/></Field>
+          <Field label="Admin email"><input value={settings.contact.adminEmail || ''} onChange={(e) => updateContact('adminEmail', e.target.value)} className="input"/></Field>
+          <Field label="Lead researcher email"><input value={settings.contact.leadEmail || ''} onChange={(e) => updateContact('leadEmail', e.target.value)} className="input"/></Field>
           <Field label="Admin phone"><input value={settings.contact.adminPhone || ''} onChange={(e) => updateContact('adminPhone', e.target.value)} className="input"/></Field>
           <Field label="Admin WhatsApp (with country code, e.g. +919876543210)"><input value={settings.contact.adminWhatsapp || ''} onChange={(e) => updateContact('adminWhatsapp', e.target.value)} placeholder="+91…" className="input"/></Field>
         </div>
