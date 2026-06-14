@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import DataStorage from '@/components/DataStorage';
 
 const FLAG_LABELS = {
@@ -24,14 +24,46 @@ const FLAG_LABELS = {
   village_outlier: 'Usage far above village neighbours',
 };
 
+// All sections, in the order shown on the page. Order matters: this is the
+// new order — Kobo forms first (the critical season switch), then project
+// info, then the rest, with Data & storage at the very bottom.
+const SECTIONS = [
+  { id: 'forms',    icon: '📋', label: 'Kobo forms',      hint: 'Switch seasons' },
+  { id: 'project',  icon: '🌱', label: 'Project info',    hint: 'Name & description' },
+  { id: 'reading',  icon: '🎯', label: 'Reading targets', hint: 'Count & period' },
+  { id: 'photo',    icon: '🖼️', label: 'Photo quality',  hint: 'HD vs space' },
+  { id: 'contact',  icon: '📬', label: 'Contact info',    hint: 'Emails & phone' },
+  { id: 'flags',    icon: '🚩', label: 'Red flag rules',  hint: 'What to detect' },
+  { id: 'storage',  icon: '🗄️', label: 'Data & storage', hint: 'DB usage' },
+];
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
+  const [dirty, setDirty] = useState(false);
+  const [flagSearch, setFlagSearch] = useState('');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const dirtyRef = useRef(false);
 
   useEffect(() => { load(); }, []);
+
+  // Warn before closing the tab if there are unsaved changes
+  useEffect(() => {
+    function beforeUnload(e) {
+      if (dirtyRef.current) { e.preventDefault(); e.returnValue = ''; }
+    }
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, []);
+
+  function setS(updater) {
+    setDirty(true);
+    dirtyRef.current = true;
+    setSettings((prev) => typeof updater === 'function' ? updater(prev) : updater);
+  }
 
   async function load() {
     setLoading(true);
@@ -59,6 +91,8 @@ export default function SettingsPage() {
           ...(data.settings.reading || {}),
         },
       });
+      setDirty(false);
+      dirtyRef.current = false;
     } else {
       setError(data.error || 'Failed to load');
     }
@@ -76,12 +110,15 @@ export default function SettingsPage() {
     setSaving(false);
     if (!res.ok) { setError(data.error || 'Save failed'); return; }
     setMessage('Saved ✓');
+    setLastSavedAt(new Date());
+    setDirty(false);
+    dirtyRef.current = false;
     setTimeout(() => setMessage(null), 2500);
   }
 
-  function updateContact(k, v) { setSettings({ ...settings, contact: { ...settings.contact, [k]: v } }); }
-  function updateFlag(k, v) { setSettings({ ...settings, redFlags: { ...settings.redFlags, [k]: v } }); }
-  function updateProject(k, v) { setSettings({ ...settings, project: { ...settings.project, [k]: v } }); }
+  function updateContact(k, v) { setS({ ...settings, contact: { ...settings.contact, [k]: v } }); }
+  function updateFlag(k, v) { setS({ ...settings, redFlags: { ...settings.redFlags, [k]: v } }); }
+  function updateProject(k, v) { setS({ ...settings, project: { ...settings.project, [k]: v } }); }
 
   function addForm() {
     const list = [...(settings.forms || [])];
@@ -92,53 +129,74 @@ export default function SettingsPage() {
       token: '',
       isActive: list.length === 0,
     });
-    setSettings({ ...settings, forms: list });
+    setS({ ...settings, forms: list });
   }
 
   function updateForm(i, k, v) {
     const list = [...settings.forms];
     list[i] = { ...list[i], [k]: v };
     if (k === 'isActive' && v) list.forEach((f, idx) => { if (idx !== i) f.isActive = false; });
-    setSettings({ ...settings, forms: list });
+    setS({ ...settings, forms: list });
   }
 
   function deleteForm(i) {
     if (!confirm(`Delete form "${settings.forms[i].name}"?`)) return;
     const list = settings.forms.filter((_, idx) => idx !== i);
-    setSettings({ ...settings, forms: list });
+    setS({ ...settings, forms: list });
+  }
+
+  function jumpTo(id) {
+    const el = document.getElementById(`section-${id}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   if (loading) return <p className="text-slate-500">Loading…</p>;
   if (!settings) return <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">{error || 'Not authorized — admin only'}</div>;
 
+  const filteredFlagKeys = Object.entries(FLAG_LABELS).filter(([k, label]) => {
+    const q = flagSearch.trim().toLowerCase();
+    if (!q) return true;
+    return k.includes(q) || label.toLowerCase().includes(q);
+  });
+
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h1 className="text-xl font-bold">⚙️ Settings</h1>
-        <button onClick={save} disabled={saving} className="px-4 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:bg-slate-300">
-          {saving ? 'Saving…' : 'Save all changes'}
-        </button>
+      {/* Sticky title + save bar — always visible while scrolling */}
+      <div className="sticky top-[60px] z-40 -mx-3 sm:mx-0 bg-slate-100/95 backdrop-blur px-3 sm:px-0 py-2 border-b border-slate-200">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold">⚙️ Settings</h1>
+            {lastSavedAt && !dirty && (
+              <p className="text-[11px] text-slate-500">Last saved {lastSavedAt.toLocaleTimeString()}</p>
+            )}
+            {dirty && (
+              <p className="text-[11px] text-amber-700 font-medium">● You have unsaved changes</p>
+            )}
+          </div>
+          <button onClick={save} disabled={saving || !dirty}
+            className={`px-4 py-2 rounded text-sm font-medium transition ${
+              !dirty ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+              : 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm'}`}>
+            {saving ? 'Saving…' : dirty ? '💾 Save changes' : 'Saved'}
+          </button>
+        </div>
+        {message && <div className="mt-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-1.5 text-xs">{message}</div>}
+        {error && <div className="mt-1.5 bg-red-50 border border-red-200 text-red-800 rounded p-1.5 text-xs">{error}</div>}
       </div>
-      {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2 text-sm">{message}</div>}
-      {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm">{error}</div>}
 
-      {/* Data & storage */}
-      <Section title="🗄️ Data & storage" subtitle="MongoDB usage, monthly downloads, and old-data cleanup">
-        <DataStorage />
-      </Section>
+      {/* Jump-to nav — tap any section to scroll there instantly */}
+      <div className="bg-white rounded-xl shadow-sm p-2 flex flex-wrap gap-1.5">
+        {SECTIONS.map((s) => (
+          <button key={s.id} onClick={() => jumpTo(s.id)}
+            className="text-xs px-2.5 py-1.5 rounded-full border border-slate-200 hover:border-brand-400 hover:bg-brand-50 transition text-slate-700 inline-flex items-center gap-1"
+            title={s.hint}>
+            <span>{s.icon}</span><span>{s.label}</span>
+          </button>
+        ))}
+      </div>
 
-      {/* Reading targets */}
-      <Section title="🎯 Reading targets" subtitle="How many readings each meter needs, and how often">
-        <ReadingTargets settings={settings} setSettings={setSettings} />
-      </Section>
-
-      {/* Photo quality */}
-      <Section title="🖼️ Photo quality" subtitle="Larger photos = more HD, but use more database space">
-        <PhotoQuality settings={settings} setSettings={setSettings} />
-      </Section>
-
-      {/* Kobo forms */}
-      <Section title="📋 Kobo forms" subtitle="Switch between seasonal forms (Kharif, Rabi, etc). Mark exactly one as active.">
+      {/* Kobo forms — moved to top: the most important admin action */}
+      <Section id="forms" title="📋 Kobo forms" subtitle="Switch between seasonal forms (Kharif, Rabi, etc). Mark exactly one as active.">
         <div className="space-y-3">
           {(settings.forms || []).length === 0 && (
             <p className="text-xs text-slate-500 italic">No forms saved yet — using env vars as default. Add a form below to override.</p>
@@ -165,7 +223,7 @@ export default function SettingsPage() {
       </Section>
 
       {/* Project info */}
-      <Section title="🌱 Project info">
+      <Section id="project" title="🌱 Project info">
         <Field label="Project name">
           <input value={settings.project.name || ''} onChange={(e) => updateProject('name', e.target.value)} className="input"/>
         </Field>
@@ -180,8 +238,18 @@ export default function SettingsPage() {
         </Field>
       </Section>
 
+      {/* Reading targets */}
+      <Section id="reading" title="🎯 Reading targets" subtitle="How many readings each meter needs, and how often">
+        <ReadingTargets settings={settings} setSettings={setS} />
+      </Section>
+
+      {/* Photo quality */}
+      <Section id="photo" title="🖼️ Photo quality" subtitle="Larger photos = more HD, but use more database space">
+        <PhotoQuality settings={settings} setSettings={setS} />
+      </Section>
+
       {/* Contact */}
-      <Section title="📬 Contact info">
+      <Section id="contact" title="📬 Contact info">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Admin email"><input value={settings.contact.adminEmail || ''} onChange={(e) => updateContact('adminEmail', e.target.value)} className="input"/></Field>
           <Field label="Lead researcher email"><input value={settings.contact.leadEmail || ''} onChange={(e) => updateContact('leadEmail', e.target.value)} className="input"/></Field>
@@ -197,12 +265,21 @@ export default function SettingsPage() {
       </Section>
 
       {/* Red flags */}
-      <Section title="🚩 Red flag rules" subtitle="Toggle which checks should fire">
-        <div className="space-y-2">
-          {Object.entries(FLAG_LABELS).map(([k, label]) => (
+      <Section id="flags" title="🚩 Red flag rules" subtitle="Toggle which checks should fire">
+        <input value={flagSearch} onChange={(e) => setFlagSearch(e.target.value)} placeholder="🔎 Search flag rules…"
+          className="input mb-2" />
+        <div className="space-y-1">
+          {filteredFlagKeys.length === 0 ? (
+            <p className="text-xs text-slate-400 italic px-1 py-2">No flag rules match "{flagSearch}".</p>
+          ) : filteredFlagKeys.map(([k, label]) => (
             <Toggle key={k} label={label} checked={settings.redFlags[k] !== false} onChange={(v) => updateFlag(k, v)}/>
           ))}
         </div>
+      </Section>
+
+      {/* Data & storage — at the bottom (heaviest section, least frequently used) */}
+      <Section id="storage" title="🗄️ Data & storage" subtitle="MongoDB usage, monthly downloads, and old-data cleanup">
+        <DataStorage />
       </Section>
 
       <style jsx>{`
@@ -216,9 +293,9 @@ export default function SettingsPage() {
   );
 }
 
-function Section({ title, subtitle, children }) {
+function Section({ id, title, subtitle, children }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5">
+    <div id={`section-${id}`} className="bg-white rounded-xl shadow-sm p-4 sm:p-5 scroll-mt-32">
       <div className="mb-3">
         <h2 className="font-semibold text-base">{title}</h2>
         {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
