@@ -4,10 +4,12 @@ import { useState } from 'react';
 import { getField } from '@/lib/fieldMap';
 import Lightbox from '@/components/Lightbox';
 
-export default function UsageRow({ entry, previous, current, flag }) {
+// `hideFlags` (true for surveyors): suppresses the red colouring and the 🚩
+// prefix. The numerical difference is still shown — it's just data.
+export default function UsageRow({ entry, previous, current, flag, hideFlags = false }) {
   const [open, setOpen] = useState(false);
   const c = entry;
-  const isFlagged = c.flagged || !!flag;
+  const isFlagged = !hideFlags && (c.flagged || !!flag);
 
   return (
     <li className={isFlagged ? 'bg-red-50/60' : ''}>
@@ -34,7 +36,7 @@ export default function UsageRow({ entry, previous, current, flag }) {
 
       {open && (previous || current) && (
         <div className="border-t border-slate-200/60 p-3 bg-slate-50/50">
-          {flag && (
+          {!hideFlags && flag && (
             <div className="bg-red-100 border border-red-300 rounded p-2.5 mb-3 text-sm text-red-900">
               <strong>🚩 Red flag:</strong>
               <ul className="list-disc pl-5 mt-1 text-xs">
