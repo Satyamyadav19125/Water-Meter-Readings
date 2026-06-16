@@ -45,7 +45,10 @@ function loadScript(id, src) {
   });
 }
 
-export default function MapView({ points = [] }) {
+// showFlagFilter (default true): admins see the Clean/Flagged segmented
+// control above the map. Surveyors don't — every pin is plain blue and the
+// strip is hidden entirely.
+export default function MapView({ points = [], showFlagFilter = true }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const tileLayerRef = useRef(null);
@@ -84,16 +87,18 @@ export default function MapView({ points = [] }) {
         markersRef.current = [];
 
         for (const p of points) {
-          const icon = p.isFlagged ? redIcon : blueIcon;
+          // If flag UI is hidden (surveyor view), every pin is blue regardless.
+          const icon = (showFlagFilter && p.isFlagged) ? redIcon : blueIcon;
           const m = L.marker([p.lat, p.lng], { icon });
           const dir = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`;
-          const flagHtml = p.isFlagged && p.flagTypes?.length
+          const flagHtml = (showFlagFilter && p.isFlagged && p.flagTypes?.length)
             ? `<div style="margin-top:6px;padding:6px 8px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:11px;color:#991b1b;">🚩 ${escapeHtml(p.flagTypes.join(', '))}</div>`
             : '';
+          const showRed = showFlagFilter && p.isFlagged;
           const popup = `
             <div style="min-width: 210px; font-family: system-ui, sans-serif;">
-              <div style="font-weight: 600; color: ${p.isFlagged ? '#991b1b' : '#0c4a6e'}; margin-bottom: 4px;">
-                ${p.isFlagged ? '🚩' : '📍'} ${escapeHtml(p.village)}
+              <div style="font-weight: 600; color: ${showRed ? '#991b1b' : '#0c4a6e'}; margin-bottom: 4px;">
+                ${showRed ? '🚩' : '📍'} ${escapeHtml(p.village)}
               </div>
               <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">${new Date(p.time).toLocaleString()}</div>
               <table style="width: 100%; font-size: 12px;">
@@ -103,7 +108,6 @@ export default function MapView({ points = [] }) {
               </table>
               ${flagHtml}
               <div style="margin-top: 8px; display:flex; gap:6px; flex-wrap:wrap;">
-                <a target="_blank" href="/kobo-view?id=${encodeURIComponent(p.id)}" style="background:#0ea5e9;color:white;font-size:11px;padding:5px 10px;border-radius:5px;text-decoration:none;">View submission</a>
                 <a target="_blank" href="${dir}" style="background:#16a34a;color:white;font-size:11px;padding:5px 10px;border-radius:5px;text-decoration:none;">🧭 Directions</a>
               </div>
             </div>`;
@@ -116,13 +120,13 @@ export default function MapView({ points = [] }) {
 
     return () => { cancelled = true; if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points]);
+  }, [points, showFlagFilter]);
 
   function matchesFilter(isFlagged) {
+    if (!showFlagFilter) return true;
     return filterMode === 'all' || (filterMode === 'flagged' && isFlagged) || (filterMode === 'clean' && !isFlagged);
   }
 
-  // Show pins OR a heat layer, respecting the clean/flagged filter.
   function applyView(map) {
     const m = map || mapRef.current;
     const L = window.L;
@@ -160,7 +164,6 @@ export default function MapView({ points = [] }) {
     tileLayerRef.current = L.tileLayer(conf.url, { maxZoom: 19, attribution: conf.attribution }).addTo(mapRef.current);
   }, [layer]);
 
-  // 🎯 Go to my current location (like Google Maps)
   function goToMyLocation() {
     const L = window.L;
     const map = mapRef.current;
@@ -188,15 +191,17 @@ export default function MapView({ points = [] }) {
 
   return (
     <div className="relative">
-      {/* Clean / Flagged filter — top-left */}
-      <div className="absolute top-2 left-12 sm:left-14 z-[450] bg-white rounded-lg shadow flex p-0.5 text-[11px] sm:text-xs">
-        <FilterBtn active={filterMode === 'all'} onClick={() => setFilterMode('all')}>All ({points.length})</FilterBtn>
-        <FilterBtn active={filterMode === 'clean'} onClick={() => setFilterMode('clean')} color="text-sky-700">● Clean ({cleanCount})</FilterBtn>
-        <FilterBtn active={filterMode === 'flagged'} onClick={() => setFilterMode('flagged')} color="text-red-700">🚩 ({flaggedCount})</FilterBtn>
-      </div>
+      {/* Clean / Flagged filter — admin only */}
+      {showFlagFilter && (
+        <div className="absolute top-2 left-12 sm:left-14 z-[450] bg-white rounded-lg shadow flex p-0.5 text-[11px] sm:text-xs">
+          <FilterBtn active={filterMode === 'all'} onClick={() => setFilterMode('all')}>All ({points.length})</FilterBtn>
+          <FilterBtn active={filterMode === 'clean'} onClick={() => setFilterMode('clean')} color="text-sky-700">● Clean ({cleanCount})</FilterBtn>
+          <FilterBtn active={filterMode === 'flagged'} onClick={() => setFilterMode('flagged')} color="text-red-700">🚩 ({flaggedCount})</FilterBtn>
+        </div>
+      )}
 
-      {/* Pins / Heat toggle — below the filter */}
-      <div className="absolute top-12 left-12 sm:left-14 z-[450] bg-white rounded-lg shadow flex p-0.5 text-[11px] sm:text-xs">
+      {/* Pins / Heat toggle */}
+      <div className={`absolute ${showFlagFilter ? 'top-12' : 'top-2'} left-12 sm:left-14 z-[450] bg-white rounded-lg shadow flex p-0.5 text-[11px] sm:text-xs`}>
         <FilterBtn active={viewMode === 'pins'} onClick={() => setViewMode('pins')}>📍 Pins</FilterBtn>
         <FilterBtn active={viewMode === 'heat'} onClick={() => setViewMode('heat')} color="text-orange-700">🔥 Heat map</FilterBtn>
       </div>
