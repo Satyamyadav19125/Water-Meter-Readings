@@ -4,6 +4,7 @@ import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
 import { detectRedFlags } from '@/lib/redflags';
 import { getSettings, getVerifiedIds } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 import MapView from '@/components/MapView';
 import FilterBar from '@/components/FilterBar';
 import MapExportButton from '@/components/MapExportButton';
@@ -35,8 +36,12 @@ export default async function MapPage({ searchParams }) {
 
   if (error) return <div className="bg-red-50 border border-red-200 rounded p-4 text-red-800 text-sm">{error}</div>;
 
+  const currentUser = await getCurrentUser();
+  const isAdmin = currentUser?.role === 'admin';
+
   const scoped0 = await filterSubmissionsForUser(submissions);
-  const flags = detectRedFlags(scoped0, { enabled: settings?.redFlags });
+  // Surveyors see all their pins as clean — no red flag indicators on the map.
+  const flags = isAdmin ? detectRedFlags(scoped0, { enabled: settings?.redFlags }) : {};
   const scoped = applyUrlFilters(scoped0, sp);
 
   const points = [];
@@ -44,7 +49,7 @@ export default async function MapPage({ searchParams }) {
     const loc = parseLocation(getField(s, 'location')) || parseLocation(s._geolocation);
     if (loc) {
       const f = flags[s._id];
-      const flagged = !!f && !verifiedIds.has(String(s._id));
+      const flagged = isAdmin && !!f && !verifiedIds.has(String(s._id));
       points.push({
         id: s._id, lat: loc.lat, lng: loc.lng,
         village: getField(s, 'village') || 'Unknown',
@@ -65,7 +70,9 @@ export default async function MapPage({ searchParams }) {
         <div>
           <h2 className="text-xl font-semibold">🗺️ Map</h2>
           <p className="text-sm text-slate-500">
-            {points.length} with GPS · <span className="text-red-600 font-medium">{flaggedTotal} flagged</span> · tap a pin for details
+            {points.length} with GPS
+            {isAdmin && <> · <span className="text-red-600 font-medium">{flaggedTotal} flagged</span></>}
+            {' '}· tap a pin for details
           </p>
         </div>
         <Suspense fallback={<div className="h-9 w-32 bg-slate-200 rounded animate-pulse" />}>
@@ -83,7 +90,7 @@ export default async function MapPage({ searchParams }) {
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow overflow-hidden">
-          <MapView points={points} />
+          <MapView points={points} showFlagFilter={isAdmin} />
         </div>
       )}
     </div>
