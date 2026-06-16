@@ -1,7 +1,9 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { fetchSubmissions, findAttachmentUrl } from '@/lib/kobo';
 import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
+import { isAdmin } from '@/lib/auth';
 import FilterBar from '@/components/FilterBar';
 import KoboTable from '@/components/KoboTable';
 import ExportButton from '@/components/ExportButton';
@@ -28,6 +30,20 @@ function latlng(val, geo) {
 }
 
 export default async function KoboViewPage({ searchParams }) {
+  // Admin only — this is the full raw spreadsheet view. Surveyors see
+  // their own data via the regular Submissions page instead.
+  if (!(await isAdmin())) {
+    return (
+      <div className="max-w-2xl mx-auto bg-blue-50 border border-blue-200 rounded-xl p-5 text-sm text-blue-900">
+        <p className="font-semibold mb-1">🔒 Admin only</p>
+        <p>The full Kobo spreadsheet view is reserved for project administrators.</p>
+        <p className="mt-2">
+          You can see all <Link href="/submissions" className="underline font-medium">your own submissions</Link> on the Submissions page.
+        </p>
+      </div>
+    );
+  }
+
   const sp = (await searchParams) || {};
   let submissions = [];
   let error = null;
