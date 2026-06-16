@@ -17,11 +17,14 @@ export default async function MeterPage({ params }) {
 
   let submissions = await fetchSubmissions();
   const [settings, verifiedIds, currentUser] = await Promise.all([getSettings(), getVerifiedIds(), getCurrentUser()]);
+  const isAdmin = currentUser?.role === 'admin';
   submissions = await filterSubmissionsForUser(submissions);
 
   const groups = groupBySerial(submissions);
   const mine = groups[serial] || [];
-  const flags = detectRedFlags(submissions, { enabled: settings?.redFlags });
+  // Flags are admin-only. Surveyors see the meter's history without any
+  // quality-review markers.
+  const flags = isAdmin ? detectRedFlags(submissions, { enabled: settings?.redFlags }) : {};
 
   const sorted = [...mine].sort(
     (a, b) => new Date(b._submission_time).getTime() - new Date(a._submission_time).getTime()
@@ -32,7 +35,9 @@ export default async function MeterPage({ params }) {
   const oldest = mine[0] ? parseReading(getField(mine[0], 'endReading')) : null;
   const totalUsage = (latest != null && oldest != null && !Number.isNaN(latest) && !Number.isNaN(oldest))
     ? Math.max(0, latest - oldest) : 0;
-  const flaggedHere = sorted.filter((s) => flags[s._id] && !verifiedIds.has(String(s._id))).length;
+  const flaggedHere = isAdmin
+    ? sorted.filter((s) => flags[s._id] && !verifiedIds.has(String(s._id))).length
+    : 0;
 
   return (
     <div className="space-y-4">
@@ -54,11 +59,13 @@ export default async function MeterPage({ params }) {
         </Suspense>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+      <div className={`grid ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'} gap-2 sm:gap-3`}>
         <Stat label="Total submissions" value={mine.length} color="bg-slate-100" />
         <Stat label="Latest reading" value={latest ?? '—'} color="bg-brand-50" />
         <Stat label="Total used" value={totalUsage.toLocaleString()} color="bg-emerald-50" />
-        <Stat label="Flagged" value={flaggedHere} color={flaggedHere > 0 ? 'bg-red-50' : 'bg-slate-50'} />
+        {isAdmin && (
+          <Stat label="Flagged" value={flaggedHere} color={flaggedHere > 0 ? 'bg-red-50' : 'bg-slate-50'} />
+        )}
       </div>
 
       <h2 className="text-lg font-semibold pt-2">All submissions for this meter</h2>
@@ -66,8 +73,8 @@ export default async function MeterPage({ params }) {
         submissions={sorted}
         flags={flags}
         allSubmissions={submissions}
-        canVerify={currentUser?.role === 'admin'}
-        verifiedIds={Array.from(verifiedIds)}
+        canVerify={isAdmin}
+        verifiedIds={isAdmin ? Array.from(verifiedIds) : []}
       />
     </div>
   );
