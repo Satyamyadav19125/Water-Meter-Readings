@@ -5,12 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeToggle from '@/components/ThemeToggle';
 
+// Links every logged-in user sees. Kobo View is admin-only and lives in the
+// admin block below, so surveyors don't see it here.
 const baseLinks = [
   { href: '/', label: 'Overview', icon: '🏠' },
   { href: '/submissions', label: 'Submissions', icon: '📋' },
   { href: '/usage', label: 'Usage', icon: '💧' },
   { href: '/map', label: 'Map', icon: '🗺️' },
-  { href: '/kobo-view', label: 'Kobo View', icon: '🪞' },
   { href: '/team', label: 'Team', icon: '👥' },
   { href: '/chat', label: 'Chat', icon: '💬' },
 ];
@@ -24,9 +25,11 @@ export default function MobileNav({ user, formUploadUrl }) {
   const badge = user?.name || (isAdmin ? 'Admin' : '');
 
   // Full list (used in the mobile drawer). Profile appears ONCE, here.
+  // Admins also get Kobo View, Settings, Debug. Surveyors don't see those.
   const links = loggedIn
     ? (isAdmin
         ? [...baseLinks,
+            { href: '/kobo-view', label: 'Kobo View', icon: '🪞' },
             { href: '/settings', label: 'Settings', icon: '⚙️' },
             { href: '/profile', label: 'My profile', icon: '👤' },
             { href: '/debug', label: 'Debug', icon: '🔧' }]
@@ -67,7 +70,6 @@ export default function MobileNav({ user, formUploadUrl }) {
 
           {loggedIn ? (
             <>
-              {/* Tap your NAME to open your profile */}
               <Link href="/profile" title="Open my profile"
                 className="px-3 py-1.5 rounded bg-white/15 hover:bg-white/25 text-sm font-medium flex items-center gap-1.5 transition max-w-[120px]">
                 {user?.photo
