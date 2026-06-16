@@ -5,6 +5,7 @@ import { computeConsumption } from '@/lib/weekly';
 import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { detectRedFlags } from '@/lib/redflags';
 import { getSettings, getVerifiedIds } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 import FilterBar from '@/components/FilterBar';
 import ExportButton from '@/components/ExportButton';
 import UsageRow from '@/components/UsageRow';
@@ -27,10 +28,17 @@ export default async function UsagePage({ searchParams }) {
     </div>
   );
 
+  const currentUser = await getCurrentUser();
+  const isAdmin = currentUser?.role === 'admin';
+
   const scoped = await filterSubmissionsForUser(submissions);
-  const rawFlags = detectRedFlags(scoped, { enabled: settings?.redFlags });
+
+  // Surveyors don't see flag info. They just see their consumption history.
   const flags = {};
-  for (const id in rawFlags) { if (!verifiedIds.has(String(id))) flags[id] = rawFlags[id]; }
+  if (isAdmin) {
+    const rawFlags = detectRedFlags(scoped, { enabled: settings?.redFlags });
+    for (const id in rawFlags) { if (!verifiedIds.has(String(id))) flags[id] = rawFlags[id]; }
+  }
 
   const filtered = applyUrlFilters(scoped, sp);
   const byId = {};
@@ -38,13 +46,15 @@ export default async function UsagePage({ searchParams }) {
 
   const consumption = computeConsumption(filtered);
   const totalUsage = consumption.reduce((sum, m) => sum + m.consumption.filter((c) => c.used > 0).reduce((s, c) => s + c.used, 0), 0);
-  const flaggedCount = consumption.reduce((sum, m) => sum + m.consumption.filter((c) => (c.flagged && !verifiedIds.has(String(c.toSubmissionId))) || flags[c.toSubmissionId]).length, 0);
+  const flaggedCount = isAdmin
+    ? consumption.reduce((sum, m) => sum + m.consumption.filter((c) => (c.flagged && !verifiedIds.has(String(c.toSubmissionId))) || flags[c.toSubmissionId]).length, 0)
+    : 0;
 
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div>
-          <h2 className="text-xl font-semibold">Water Usage</h2>
+          <h2 className="text-xl font-semibold">{isAdmin ? 'Water Usage' : 'My Water Usage'}</h2>
           <p className="text-sm text-slate-500">Consumption between readings · tap any row to see both submissions</p>
         </div>
         <Suspense fallback={<div className="h-9 w-24 bg-slate-200 rounded animate-pulse" />}>
@@ -56,9 +66,11 @@ export default async function UsagePage({ searchParams }) {
         <FilterBar />
       </Suspense>
 
-      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+      <div className={`grid ${isAdmin ? 'grid-cols-2' : 'grid-cols-1'} gap-2 sm:gap-3`}>
         <Stat label="Total units used" value={totalUsage.toLocaleString()} color="bg-brand-50" />
-        <Stat label="Flagged readings" value={flaggedCount} color={flaggedCount > 0 ? 'bg-red-50' : 'bg-emerald-50'} />
+        {isAdmin && (
+          <Stat label="Flagged readings" value={flaggedCount} color={flaggedCount > 0 ? 'bg-red-50' : 'bg-emerald-50'} />
+        )}
       </div>
 
       <div className="space-y-3">
@@ -67,7 +79,7 @@ export default async function UsagePage({ searchParams }) {
         ) : (
           consumption.map((m) => {
             const usedTotal = m.consumption.filter((c) => c.used > 0).reduce((s, c) => s + c.used, 0);
-            const hasFlag = m.consumption.some((c) => (c.flagged && !verifiedIds.has(String(c.toSubmissionId))) || flags[c.toSubmissionId]);
+            const hasFlag = isAdmin && m.consumption.some((c) => (c.flagged && !verifiedIds.has(String(c.toSubmissionId))) || flags[c.toSubmissionId]);
             return (
               <div key={m.serial} className={`bg-white rounded-lg shadow overflow-hidden ${hasFlag ? 'ring-1 ring-red-200' : ''}`}>
                 <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between gap-2">
@@ -93,7 +105,8 @@ export default async function UsagePage({ searchParams }) {
                       entry={c}
                       previous={byId[c.fromSubmissionId]}
                       current={byId[c.toSubmissionId]}
-                      flag={flags[c.toSubmissionId]}
+                      flag={isAdmin ? flags[c.toSubmissionId] : null}
+                      hideFlags={!isAdmin}
                     />
                   ))}
                   {m.consumption.length > 5 && (
