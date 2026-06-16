@@ -14,14 +14,13 @@ export const dynamic = 'force-dynamic';
 export default async function HomePage() {
   const currentUser = await getCurrentUser();
   if (!currentUser) return <Landing />;
+  const isAdmin = currentUser.role === 'admin';
 
-  // 1) Kobo data is the critical path — fetch it on its own.
   let submissions = [];
   let koboError = null;
   try { submissions = await fetchSubmissions(); }
   catch (e) { koboError = e.message; }
 
-  // 2) MongoDB is optional for viewing — never let it block the page.
   let assignments = [];
   let settings;
   let dbWarning = null;
@@ -47,14 +46,20 @@ export default async function HomePage() {
   submissions = await filterSubmissionsForUser(submissions);
   assignments = await filterAssignmentsForUser(assignments);
 
-  let verifiedIds = new Set();
-  try { verifiedIds = await getVerifiedIds(); } catch {}
-
-  const rawFlags = detectRedFlags(submissions, { enabled: settings?.redFlags });
-  const flags = {};
-  for (const id in rawFlags) { if (!verifiedIds.has(String(id))) flags[id] = rawFlags[id]; }
-  const flaggedTotal = Object.keys(flags).length;
-  const cleanTotal = submissions.length - flaggedTotal;
+  // Quality / red-flag stats are admin-only. Surveyors don't see clean vs
+  // flagged counts, "quality rate", or the quality donut chart — their
+  // overview stays positive and focused on the work they've done.
+  let flaggedTotal = 0;
+  let cleanTotal = submissions.length;
+  if (isAdmin) {
+    let verifiedIds = new Set();
+    try { verifiedIds = await getVerifiedIds(); } catch {}
+    const rawFlags = detectRedFlags(submissions, { enabled: settings?.redFlags });
+    const flags = {};
+    for (const id in rawFlags) { if (!verifiedIds.has(String(id))) flags[id] = rawFlags[id]; }
+    flaggedTotal = Object.keys(flags).length;
+    cleanTotal = submissions.length - flaggedTotal;
+  }
 
   const villageCounts = {};
   const surveyorCounts = {};
@@ -64,9 +69,7 @@ export default async function HomePage() {
     villageCounts[v] = (villageCounts[v] || 0) + 1;
     surveyorCounts[sv] = (surveyorCounts[sv] || 0) + 1;
   }
-  // For a surveyor, "Villages" must mean ASSIGNED villages (from the admin's
-  // assignment), not just villages that happen to have data yet.
-  const uniqueVillages = currentUser.role === 'user'
+  const uniqueVillages = !isAdmin
     ? (currentUser.villages || []).length
     : Object.keys(villageCounts).length;
   const uniqueSurveyors = Object.keys(surveyorCounts).length;
@@ -75,7 +78,10 @@ export default async function HomePage() {
   const surveyorBars = Object.entries(surveyorCounts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
 
   const meters = deriveMeters(assignments, submissions);
-  const status = computeWeeklyStatus(meters, submissions);
+  const target = Math.max(1, Number(settings?.reading?.target) || 2);
+  const periodDays = Math.max(1, Number(settings?.reading?.periodDays) || 7);
+  const periodLabel = String(settings?.reading?.periodLabel || 'week');
+  const status = computeWeeklyStatus(meters, submissions, new Date(), { target, periodDays });
   const remaining = daysRemaining();
   const done = status.filter((s) => s.status === 'done').length;
   const partial = status.filter((s) => s.status === 'partial').length;
@@ -88,7 +94,7 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-4">
-      {dbWarning && currentUser.role === 'admin' && (
+      {dbWarning && isAdmin && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 text-sm">
           <p className="font-semibold">⚠️ Database not connected (your Kobo data is fine)</p>
           <p className="text-xs mt-1">Assignments, settings and saved profiles won't load until this is fixed. Error: <code className="bg-amber-100 px-1 rounded">{dbWarning}</code></p>
@@ -101,9 +107,9 @@ export default async function HomePage() {
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-bold">Welcome, {currentUser.name}!</h2>
           <p className="text-sm text-slate-600">
-            {currentUser.role === 'admin'
+            {isAdmin
               ? 'Full admin access. Manage assignments, settings, and view all data.'
-              : `You're assigned to ${currentUser.villages?.length || 0} village${currentUser.villages?.length === 1 ? '' : 's'}.`}
+              : `You're assigned to ${currentUser.villages?.length || 0} village${currentUser.villages?.length === 1 ? '' : 's'}. Thanks for your work!`}
           </p>
         </div>
         <Link href="/profile"
@@ -112,39 +118,54 @@ export default async function HomePage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-        <Kpi label="Total submissions" value={submissions.length.toLocaleString()} color="bg-brand-50 text-brand-900" icon="📋" />
-        <Kpi label="Clean readings" value={cleanTotal.toLocaleString()} color="bg-field-50 text-field-900" icon="✓" />
-        <Kpi label="🚩 Flagged" value={flaggedTotal.toLocaleString()} color={flaggedTotal > 0 ? 'bg-red-50 text-red-900' : 'bg-slate-50 text-slate-700'} icon="" />
-        <Kpi label="Quality rate" value={submissions.length > 0 ? `${Math.round((cleanTotal / submissions.length) * 100)}%` : '—'} color="bg-emerald-50 text-emerald-900" icon="📊" />
-        <Kpi label={currentUser.role === 'user' ? 'My villages' : 'Villages'} value={uniqueVillages} color="bg-amber-50 text-amber-900" icon="🏘️" />
-        <Kpi label="Active surveyors" value={uniqueSurveyors} color="bg-violet-50 text-violet-900" icon="👤" />
-        <Kpi label="This week" value={`${done}/${meters.length} done`} color="bg-sky-50 text-sky-900" icon="📅" />
-        <Kpi label="Days left in week" value={remaining} color="bg-slate-100 text-slate-900" icon="⏳" />
-      </div>
+      {/* KPI grid — admins see 8 (incl. quality stats), surveyors see 4 positive ones */}
+      {isAdmin ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+          <Kpi label="Total submissions" value={submissions.length.toLocaleString()} color="bg-brand-50 text-brand-900" icon="📋" />
+          <Kpi label="Clean readings" value={cleanTotal.toLocaleString()} color="bg-field-50 text-field-900" icon="✓" />
+          <Kpi label="🚩 Flagged" value={flaggedTotal.toLocaleString()} color={flaggedTotal > 0 ? 'bg-red-50 text-red-900' : 'bg-slate-50 text-slate-700'} icon="" />
+          <Kpi label="Quality rate" value={submissions.length > 0 ? `${Math.round((cleanTotal / submissions.length) * 100)}%` : '—'} color="bg-emerald-50 text-emerald-900" icon="📊" />
+          <Kpi label="Villages" value={uniqueVillages} color="bg-amber-50 text-amber-900" icon="🏘️" />
+          <Kpi label="Active surveyors" value={uniqueSurveyors} color="bg-violet-50 text-violet-900" icon="👤" />
+          <Kpi label={`This ${periodLabel}`} value={`${done}/${meters.length} done`} color="bg-sky-50 text-sky-900" icon="📅" />
+          <Kpi label={`Days left in ${periodLabel}`} value={remaining} color="bg-slate-100 text-slate-900" icon="⏳" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+          <Kpi label="My submissions" value={submissions.length.toLocaleString()} color="bg-brand-50 text-brand-900" icon="📋" />
+          <Kpi label="My villages" value={uniqueVillages} color="bg-amber-50 text-amber-900" icon="🏘️" />
+          <Kpi label={`This ${periodLabel}`} value={`${done}/${meters.length} done`} color="bg-sky-50 text-sky-900" icon="📅" />
+          <Kpi label={`Days left in ${periodLabel}`} value={remaining} color="bg-slate-100 text-slate-900" icon="⏳" />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <QuickLink href="/submissions" icon="📋" label="Submissions" />
         <QuickLink href="/usage" icon="💧" label="Water usage" />
         <QuickLink href="/map" icon="🗺️" label="Map" />
-        <QuickLink href="/kobo-view" icon="🪞" label="Kobo data" />
+        {isAdmin
+          ? <QuickLink href="/kobo-view" icon="🪞" label="Kobo data" />
+          : <QuickLink href="/team" icon="👥" label="My team" />}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Card title="Quality at a glance" subtitle={`${cleanTotal} clean · ${flaggedTotal} flagged · ${submissions.length} total`}>
-          <DonutChart data={cleanVsFlagged} emptyText="No submissions yet" />
-        </Card>
-        <Card title="Submissions per surveyor" subtitle={`${uniqueSurveyors} surveyors`}>
-          <VerticalBars data={surveyorBars} color="#7c3aed" />
-        </Card>
-      </div>
+      {/* Charts — only admins see quality donut + per-surveyor bars */}
+      {isAdmin && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <Card title="Quality at a glance" subtitle={`${cleanTotal} clean · ${flaggedTotal} flagged · ${submissions.length} total`}>
+            <DonutChart data={cleanVsFlagged} emptyText="No submissions yet" />
+          </Card>
+          <Card title="Submissions per surveyor" subtitle={`${uniqueSurveyors} surveyors`}>
+            <VerticalBars data={surveyorBars} color="#7c3aed" />
+          </Card>
+        </div>
+      )}
 
-      <Card title="Submissions per village" subtitle="Top 8">
+      <Card title={isAdmin ? 'Submissions per village' : 'My submissions per village'} subtitle={isAdmin ? 'Top 8' : 'Your assigned villages'}>
         <BarChart data={villageBars} color="#0284c7" emptyText="No villages yet" />
       </Card>
 
       {status.length > 0 && (
-        <Card title="This week's progress" subtitle={`${done} done · ${partial} partial · ${pending} pending · ${remaining} days left`}>
+        <Card title={`This ${periodLabel}'s progress`} subtitle={`${done} done · ${partial} partial · ${pending} pending · ${remaining} day${remaining === 1 ? '' : 's'} left`}>
           <div className="grid grid-cols-3 gap-3 mb-4">
             <MiniStat label="Done" value={done} color="bg-field-100 text-field-900" />
             <MiniStat label="Partial" value={partial} color="bg-amber-100 text-amber-900" />
