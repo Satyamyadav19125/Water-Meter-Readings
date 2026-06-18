@@ -46,8 +46,9 @@ function loadScript(id, src) {
 }
 
 // showFlagFilter (default true): admins see the Clean/Flagged segmented
-// control above the map. Surveyors don't — every pin is plain blue and the
-// strip is hidden entirely.
+// control above the map and a "View submission" link in each popup.
+// Surveyors don't — every pin is plain blue, the strip is hidden, and the
+// admin-only "View submission" link is hidden too.
 export default function MapView({ points = [], showFlagFilter = true }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -56,8 +57,8 @@ export default function MapView({ points = [], showFlagFilter = true }) {
   const heatRef = useRef(null);
   const myMarkerRef = useRef(null);
   const [layer, setLayer] = useState('street');
-  const [filterMode, setFilterMode] = useState('all'); // all | clean | flagged
-  const [viewMode, setViewMode] = useState('pins');    // pins | heat
+  const [filterMode, setFilterMode] = useState('all');
+  const [viewMode, setViewMode] = useState('pins');
   const [locating, setLocating] = useState(false);
 
   const flaggedCount = points.filter((p) => p.isFlagged).length;
@@ -91,10 +92,16 @@ export default function MapView({ points = [], showFlagFilter = true }) {
           const icon = (showFlagFilter && p.isFlagged) ? redIcon : blueIcon;
           const m = L.marker([p.lat, p.lng], { icon });
           const dir = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`;
-          const flagHtml = (showFlagFilter && p.isFlagged && p.flagTypes?.length)
+          const showRed = showFlagFilter && p.isFlagged;
+          const flagHtml = (showRed && p.flagTypes?.length)
             ? `<div style="margin-top:6px;padding:6px 8px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:11px;color:#991b1b;">🚩 ${escapeHtml(p.flagTypes.join(', '))}</div>`
             : '';
-          const showRed = showFlagFilter && p.isFlagged;
+          // "View submission" link is admin-only — kobo-view itself is
+          // already gated server-side, but no point showing surveyors a
+          // link that takes them to an "Admin only" panel.
+          const viewLink = showFlagFilter
+            ? `<a target="_blank" href="/kobo-view?id=${encodeURIComponent(p.id)}" style="background:#0ea5e9;color:white;font-size:11px;padding:5px 10px;border-radius:5px;text-decoration:none;">View submission</a>`
+            : '';
           const popup = `
             <div style="min-width: 210px; font-family: system-ui, sans-serif;">
               <div style="font-weight: 600; color: ${showRed ? '#991b1b' : '#0c4a6e'}; margin-bottom: 4px;">
@@ -108,6 +115,7 @@ export default function MapView({ points = [], showFlagFilter = true }) {
               </table>
               ${flagHtml}
               <div style="margin-top: 8px; display:flex; gap:6px; flex-wrap:wrap;">
+                ${viewLink}
                 <a target="_blank" href="${dir}" style="background:#16a34a;color:white;font-size:11px;padding:5px 10px;border-radius:5px;text-decoration:none;">🧭 Directions</a>
               </div>
             </div>`;
@@ -191,7 +199,6 @@ export default function MapView({ points = [], showFlagFilter = true }) {
 
   return (
     <div className="relative">
-      {/* Clean / Flagged filter — admin only */}
       {showFlagFilter && (
         <div className="absolute top-2 left-12 sm:left-14 z-[450] bg-white rounded-lg shadow flex p-0.5 text-[11px] sm:text-xs">
           <FilterBtn active={filterMode === 'all'} onClick={() => setFilterMode('all')}>All ({points.length})</FilterBtn>
@@ -200,13 +207,11 @@ export default function MapView({ points = [], showFlagFilter = true }) {
         </div>
       )}
 
-      {/* Pins / Heat toggle */}
       <div className={`absolute ${showFlagFilter ? 'top-12' : 'top-2'} left-12 sm:left-14 z-[450] bg-white rounded-lg shadow flex p-0.5 text-[11px] sm:text-xs`}>
         <FilterBtn active={viewMode === 'pins'} onClick={() => setViewMode('pins')}>📍 Pins</FilterBtn>
         <FilterBtn active={viewMode === 'heat'} onClick={() => setViewMode('heat')} color="text-orange-700">🔥 Heat map</FilterBtn>
       </div>
 
-      {/* Layer switcher — top-right */}
       <div className="absolute top-2 right-2 z-[450] bg-white rounded-lg shadow flex flex-col p-1 gap-0.5">
         {Object.entries(TILE_LAYERS).map(([k, v]) => (
           <button key={k} onClick={() => setLayer(k)}
@@ -216,7 +221,6 @@ export default function MapView({ points = [], showFlagFilter = true }) {
         ))}
       </div>
 
-      {/* 🎯 My location — bottom-right */}
       <button onClick={goToMyLocation} title="Go to my location"
         className="absolute bottom-6 right-2 z-[450] w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center text-xl hover:bg-slate-50 active:scale-95 transition">
         {locating ? <span className="animate-spin text-base">⏳</span> : '🎯'}
