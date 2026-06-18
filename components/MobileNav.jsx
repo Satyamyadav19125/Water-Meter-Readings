@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeToggle from '@/components/ThemeToggle';
+import RefreshButton from '@/components/RefreshButton';
 
 // Links every logged-in user sees. Kobo View is admin-only and lives in the
 // admin block below, so surveyors don't see it here.
@@ -24,8 +25,6 @@ export default function MobileNav({ user, formUploadUrl }) {
   const loggedIn = !!user;
   const badge = user?.name || (isAdmin ? 'Admin' : '');
 
-  // Full list (used in the mobile drawer). Profile appears ONCE, here.
-  // Admins also get Kobo View, Settings, Debug. Surveyors don't see those.
   const links = loggedIn
     ? (isAdmin
         ? [...baseLinks,
@@ -36,8 +35,6 @@ export default function MobileNav({ user, formUploadUrl }) {
         : [...baseLinks, { href: '/profile', label: 'My profile', icon: '👤' }])
     : [];
 
-  // Desktop top bar shows a shorter list (no profile — your NAME badge opens
-  // the profile) so links never overflow off-screen.
   const desktopLinks = links.filter((l) => l.href !== '/profile');
 
   return (
@@ -66,6 +63,7 @@ export default function MobileNav({ user, formUploadUrl }) {
             </a>
           )}
 
+          {loggedIn && <RefreshButton />}
           <ThemeToggle />
 
           {loggedIn ? (
