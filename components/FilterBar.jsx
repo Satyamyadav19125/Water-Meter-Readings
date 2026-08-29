@@ -3,46 +3,77 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 
+// Module-scoped cache of the filter dropdown data. FilterBar remounts on every
+// navigation (it lives in the page, not the layout), so without this each
+// filter change re-fetched /api/villages AND /api/surveyors — both of which
+// hit Kobo + the form master server-side. Caching here for a short window makes
+// changing the surveyor/village filter feel instant instead of slow.
+let _filterCache = null;      // { villages, surveyors } response shape
+let _filterCacheTs = 0;
+const FILTER_CACHE_TTL = 60000;
+
 export default function FilterBar() {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
 
   const [villages, setVillages] = useState([]);
+  const [farms, setFarms] = useState([]);
   const [meters, setMeters] = useState([]);
   const [surveyors, setSurveyors] = useState([]);
   const [metersByVillage, setMetersByVillage] = useState({});
+  const [metersByFarm, setMetersByFarm] = useState({});
   const [surveyorVillages, setSurveyorVillages] = useState({});
   const [open, setOpen] = useState(false);
 
   const village = sp.get('village') || '';
+  const farm = sp.get('farm') || '';
   const meter = sp.get('meter') || '';
   const surveyor = sp.get('surveyor') || '';
   const from = sp.get('from') || '';
   const to = sp.get('to') || '';
+  const uid = sp.get('id') || '';
   const flag = sp.get('flag') || '';
 
-  const activeCount = [village, meter, surveyor, from, to].filter(Boolean).length;
+  const [uidText, setUidText] = useState(uid);
+  useEffect(() => { setUidText(uid); }, [uid]);
+
+  const activeCount = [village, farm, meter, surveyor, from, to, uid].filter(Boolean).length;
 
   useEffect(() => {
+    let alive = true;
+    function apply({ v, s }) {
+      if (!alive) return;
+      setVillages(v.villages || []);
+      setFarms(v.farms || []);
+      setMeters(v.meters || []);
+      setMetersByVillage(v.metersByVillage || {});
+      setMetersByFarm(v.metersByFarm || {});
+      setSurveyors(s.surveyors || []);
+      setSurveyorVillages(s.pairings || {});
+    }
+    // Reuse the recent cache so remounting on each filter change is instant.
+    if (_filterCache && Date.now() - _filterCacheTs < FILTER_CACHE_TTL) {
+      apply(_filterCache);
+      return () => { alive = false; };
+    }
     Promise.all([
       fetch('/api/villages').then((r) => r.json()).catch(() => ({})),
       fetch('/api/surveyors').then((r) => r.json()).catch(() => ({})),
     ]).then(([v, s]) => {
-      setVillages(v.villages || []);
-      setMeters(v.meters || []);
-      setMetersByVillage(v.metersByVillage || {});
-      setSurveyors(s.surveyors || []);
-      setSurveyorVillages(s.pairings || {});
+      _filterCache = { v, s };
+      _filterCacheTs = Date.now();
+      apply({ v, s });
     });
+    return () => { alive = false; };
   }, []);
 
   function update(key, value) {
     const params = new URLSearchParams(sp.toString());
     if (value) params.set(key, value);
     else params.delete(key);
-    if (key === 'village') params.delete('meter');
-    if (key === 'surveyor') params.delete('meter');
+    // Changing the village/farm/surveyor scope invalidates a picked pipe.
+    if (key === 'village' || key === 'farm' || key === 'surveyor') params.delete('meter');
     router.push(`${pathname}?${params.toString()}`);
   }
 
@@ -54,6 +85,10 @@ export default function FilterBar() {
 
   let availableMeters = meters;
   if (village) availableMeters = metersByVillage[village] || [];
+  if (farm) {
+    const inFarm = new Set(metersByFarm[farm] || []);
+    availableMeters = (village ? availableMeters : Array.from(inFarm)).filter((m) => inFarm.has(m));
+  }
   if (surveyor) {
     const villagesForSurveyor = surveyorVillages[surveyor] || [];
     const set = new Set();
@@ -94,7 +129,13 @@ export default function FilterBar() {
               {availableVillages.map((v) => <option key={v} value={v}>{v}</option>)}
             </select>
           </Field>
-          <Field label={`Meter serial (${availableMeters.length})`}>
+          <Field label={`Farm ID (${farms.length})`}>
+            <select value={farm} onChange={(e) => update('farm', e.target.value)} className="filter-input">
+              <option value="">All farms</option>
+              {farms.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Field>
+          <Field label={`Meter ID (${availableMeters.length})`}>
             <select value={meter} onChange={(e) => update('meter', e.target.value)} className="filter-input">
               <option value="">All meters</option>
               {availableMeters.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -102,6 +143,16 @@ export default function FilterBar() {
           </Field>
           <Field label="From date"><input type="date" value={from} onChange={(e) => update('from', e.target.value)} className="filter-input" /></Field>
           <Field label="To date"><input type="date" value={to} onChange={(e) => update('to', e.target.value)} className="filter-input" /></Field>
+          <Field label="Submission UID">
+            <input
+              value={uidText}
+              onChange={(e) => setUidText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') update('id', uidText.trim()); }}
+              onBlur={() => { if (uidText.trim() !== uid) update('id', uidText.trim()); }}
+              placeholder="e.g. 809459895"
+              inputMode="numeric"
+              className="filter-input font-mono" />
+          </Field>
           <div className="flex items-end">
             <button onClick={clearAll} disabled={activeCount === 0}
               className="w-full px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">

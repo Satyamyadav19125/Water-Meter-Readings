@@ -12,7 +12,10 @@ export async function GET(request, { params }) {
     if (!m) return new Response('Not found', { status: 404 });
     const headers = {
       'Content-Type': m.contentType || 'application/octet-stream',
+      // Cache in the browser AND on Vercel's edge, so repeat views don't re-hit
+      // the function (saves origin transfer, CPU and memory on the free tier).
       'Cache-Control': 'public, max-age=31536000, immutable',
+      'Vercel-CDN-Cache-Control': 'public, max-age=31536000, immutable',
     };
     if (name) headers['Content-Disposition'] = `${download ? 'attachment' : 'inline'}; filename="${name}"`;
     return new Response(m.buffer, { headers });

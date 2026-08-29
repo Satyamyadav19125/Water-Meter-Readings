@@ -1,19 +1,43 @@
 import { NextResponse } from 'next/server';
-import { getSettings, saveSettings, DEFAULT_SETTINGS } from '@/lib/db';
-import { isAdmin, getCurrentUser } from '@/lib/auth';
+import { getSettings, saveSettings, getActiveForm, DEFAULT_SETTINGS } from '@/lib/db';
+import { isAdmin, getCurrentUser, envAdminPasswords } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const user = await getCurrentUser();
   const settings = await getSettings();
-  if (user?.role === 'admin') return NextResponse.json({ settings });
-  // Non-admin: strip Kobo API tokens AND admin personal profiles (don't leak
-  // names/photos/phones of admins to surveyors).
+  if (user?.role === 'admin') {
+    // Which Kobo form the tool is ACTUALLY using right now (saved form or env
+    // fallback) — shown read-only in Settings so the UID is always visible.
+    let activeForm = null;
+    try {
+      const f = await getActiveForm();
+      activeForm = { name: f.name || 'env-default', baseUrl: f.baseUrl || process.env.KOBO_BASE_URL || 'https://kf.kobotoolbox.org', assetUid: f.assetUid || '' };
+    } catch { /* not configured yet */ }
+    // Admin login overview for Settings -> Admin passwords: where the
+    // passwords come from, how many admins there are, which one is YOU, and
+    // the current list (prefilled so "change my password" is one edit away).
+    const dbList = (settings.security?.adminPasswords || []).map((p) => String(p)).filter(Boolean);
+    const activeList = dbList.length > 0 ? dbList : envAdminPasswords();
+    const profiles = settings.adminProfiles || {};
+    const adminInfo = {
+      source: dbList.length > 0 ? 'settings' : 'env',
+      count: activeList.length,
+      passwords: activeList,
+      youIndex: user?.adminId ? Number(String(user.adminId).replace('admin', '')) : -1,
+      names: activeList.map((_, i) => profiles[`admin${i}`]?.name || `Admin ${i + 1}`),
+    };
+    return NextResponse.json({ settings, activeForm, adminInfo });
+  }
+  // Non-admin: strip Kobo API tokens, admin personal profiles AND the guest
+  // password (never leak any credential to surveyors/guests).
   const safe = {
     ...settings,
     forms: (settings.forms || []).map((f) => ({ ...f, token: undefined })),
     adminProfiles: undefined,
+    security: undefined,
+    guest: settings.guest ? { ...settings.guest, password: undefined } : undefined,
   };
   return NextResponse.json({ settings: safe });
 }
@@ -37,7 +61,15 @@ export async function PUT(request) {
     redFlags: { ...DEFAULT_SETTINGS.redFlags, ...(body.redFlags || {}) },
     project: { ...DEFAULT_SETTINGS.project, ...(body.project || {}) },
     forms: Array.isArray(body.forms) ? body.forms : [],
+    meter: { ...DEFAULT_SETTINGS.meter, ...(existing.meter || {}), ...(body.meter || {}) },
+    security: { ...DEFAULT_SETTINGS.security, ...(existing.security || {}), ...(body.security || {}) },
     reading: { ...DEFAULT_SETTINGS.reading, ...(existing.reading || {}), ...(body.reading || {}) },
+    guest: {
+      ...DEFAULT_SETTINGS.guest, ...(existing.guest || {}), ...(body.guest || {}),
+      show: { ...DEFAULT_SETTINGS.guest.show, ...((existing.guest || {}).show || {}), ...((body.guest || {}).show || {}) },
+      landing: { ...DEFAULT_SETTINGS.guest.landing, ...((existing.guest || {}).landing || {}), ...((body.guest || {}).landing || {}) },
+    },
+    landingControls: { ...DEFAULT_SETTINGS.landingControls, ...(existing.landingControls || {}), ...(body.landingControls || {}) },
     adminProfiles: existing.adminProfiles || {},  // <-- preserve, never overwrite from this endpoint
   };
 
@@ -49,6 +81,23 @@ export async function PUT(request) {
   r.photoQuality = Math.max(0.4, Math.min(0.98, Number(r.photoQuality) || 0.85));
   r.profilePhotoMaxPx = Math.max(200, Math.min(2000, Math.round(Number(r.profilePhotoMaxPx) || 600)));
   r.profilePhotoQuality = Math.max(0.4, Math.min(0.98, Number(r.profilePhotoQuality) || 0.88));
+
+  // Meter params: keep numbers as numbers; empty string means "check disabled".
+  const pp = merged.meter;
+  for (const k of ['maxLocationKm', 'flagWindowDays', 'hugeJumpThreshold']) {
+    if (pp[k] === '' || pp[k] == null) { pp[k] = ''; continue; }
+    const n = Number(pp[k]);
+    pp[k] = Number.isFinite(n) ? Math.max(0, n) : '';
+  }
+
+  // Admin passwords: trimmed, deduped, max 10, each 4-100 chars. An empty
+  // list is allowed and means "use the ADMIN_PASSWORD env var".
+  {
+    const list = Array.isArray(merged.security.adminPasswords) ? merged.security.adminPasswords : [];
+    merged.security.adminPasswords = Array.from(new Set(
+      list.map((p) => String(p).trim()).filter((p) => p.length >= 4 && p.length <= 100)
+    )).slice(0, 10);
+  }
 
   let foundActive = false;
   merged.forms = merged.forms.map((f) => {

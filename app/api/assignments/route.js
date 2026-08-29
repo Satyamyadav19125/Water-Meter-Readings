@@ -21,6 +21,11 @@ export async function GET() {
   try {
     const list = await getAssignments();
     if (user.role === 'admin') return NextResponse.json({ assignments: list });
+    // Guest (read-only viewer): the real team, but with passwords stripped so no
+    // login credentials ever reach the browser.
+    if (user.role === 'guest') {
+      return NextResponse.json({ assignments: list.map(({ password, ...rest }) => rest) });
+    }
     const own = list
       .filter((a) => a.person === user.name)
       .map(({ password, ...rest }) => rest);

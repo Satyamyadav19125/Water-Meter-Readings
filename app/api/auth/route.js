@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { checkAdminPassword, ADMIN_COOKIE, USER_COOKIE } from '@/lib/auth';
+import { checkAdminPassword, checkGuestPassword, ADMIN_COOKIE, USER_COOKIE, GUEST_COOKIE } from '@/lib/auth';
 import { getAssignments } from '@/lib/db';
 
 export async function POST(request) {
@@ -10,6 +10,7 @@ export async function POST(request) {
     const res = NextResponse.json({ ok: true });
     res.cookies.set(ADMIN_COOKIE, '', { maxAge: 0, path: '/' });
     res.cookies.set(USER_COOKIE, '', { maxAge: 0, path: '/' });
+    res.cookies.set(GUEST_COOKIE, '', { maxAge: 0, path: '/' });
     return res;
   }
 
@@ -21,7 +22,7 @@ export async function POST(request) {
     httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30,
   };
 
-  if (checkAdminPassword(password)) {
+  if (await checkAdminPassword(password)) {
     const res = NextResponse.json({ ok: true, role: 'admin' });
     res.cookies.set(ADMIN_COOKIE, password, cookieOpts);
     res.cookies.set(USER_COOKIE, '', { maxAge: 0, path: '/' });
@@ -35,10 +36,20 @@ export async function POST(request) {
       const res = NextResponse.json({ ok: true, role: 'user', name: user.person });
       res.cookies.set(USER_COOKIE, `${user.person}::${password}`, cookieOpts);
       res.cookies.set(ADMIN_COOKIE, '', { maxAge: 0, path: '/' });
+      res.cookies.set(GUEST_COOKIE, '', { maxAge: 0, path: '/' });
       return res;
     }
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+
+  // Guest (read-only viewer) — checked last so a real account always wins.
+  if (await checkGuestPassword(password)) {
+    const res = NextResponse.json({ ok: true, role: 'guest' });
+    res.cookies.set(GUEST_COOKIE, password, cookieOpts);
+    res.cookies.set(ADMIN_COOKIE, '', { maxAge: 0, path: '/' });
+    res.cookies.set(USER_COOKIE, '', { maxAge: 0, path: '/' });
+    return res;
   }
 
   return NextResponse.json({ error: 'Wrong password' }, { status: 401 });

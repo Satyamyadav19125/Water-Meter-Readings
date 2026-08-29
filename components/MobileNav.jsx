@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeToggle from '@/components/ThemeToggle';
@@ -11,31 +11,96 @@ import RefreshButton from '@/components/RefreshButton';
 const baseLinks = [
   { href: '/', label: 'Overview', icon: '🏠' },
   { href: '/submissions', label: 'Submissions', icon: '📋' },
-  { href: '/usage', label: 'Usage', icon: '💧' },
+  { href: '/usage', label: 'Water usage', icon: '💧' },
   { href: '/map', label: 'Map', icon: '🗺️' },
-  { href: '/team', label: 'Team', icon: '👥' },
+  { href: '/team', label: 'Assignment', icon: '👥' },
   { href: '/chat', label: 'Chat', icon: '💬' },
 ];
 
-export default function MobileNav({ user, formUploadUrl }) {
+export default function MobileNav({ user, formUploadUrl, guestBrandName = '', publicGeneric = false }) {
   const [open, setOpen] = useState(false);
+  const [unreadTotal, setUnreadTotal] = useState(0);
+  const lastTotalRef = useRef(0);
   const pathname = usePathname();
 
   const isAdmin = user?.role === 'admin';
+  const isGuest = user?.role === 'guest';
+
+  // Which name shows in the top bar. The custom guest/app name shows ONLY for:
+  //  (a) a logged-in guest,
+  //  (b) the /view guest-viewer link (logged out), and
+  //  (c) any logged-out page IF the admin turned on the generic public landing.
+  // Everywhere else — including the normal root landing — keeps the real
+  // "PVC Pipe Readings" branding, so sharing the root link shows the original.
+  const onGuestView = !user && !!pathname && pathname.startsWith('/view');
+  const useGuestBrand = isGuest || onGuestView || (!user && publicGeneric);
+  const brandName = useGuestBrand ? (guestBrandName || 'Field Readings') : 'Water Meter Readings';
+
+  // A custom guest brand also renames the browser tab (only where it applies).
+  useEffect(() => {
+    if (typeof document !== 'undefined' && useGuestBrand && brandName) document.title = brandName;
+  }, [useGuestBrand, brandName]);
   const loggedIn = !!user;
   const badge = user?.name || (isAdmin ? 'Admin' : '');
 
-  const links = loggedIn
-    ? (isAdmin
+  // Guest (read-only viewer): only the sections the admin allowed, and NONE of
+  // the admin/personal tools (Settings, Debug, Kobo View, Chat, profile).
+  const guestShow = user?.show || {};
+  const guestLinks = [
+    { href: '/', label: 'Overview', icon: '🏠', k: 'overview' },
+    { href: '/submissions', label: 'Submissions', icon: '📋', k: 'submissions' },
+    { href: '/usage', label: 'Water usage', icon: '💧', k: 'usage' },
+    { href: '/map', label: 'Map', icon: '🗺️', k: 'map' },
+    { href: '/team', label: 'Assignment', icon: '👥', k: 'assignment' },
+    { href: '/chat', label: 'Chat', icon: '💬', k: 'chat' },
+  ].filter((l) => guestShow[l.k] !== false);
+
+  const links = !loggedIn ? []
+    : isGuest ? guestLinks
+    : (isAdmin
         ? [...baseLinks,
             { href: '/kobo-view', label: 'Kobo View', icon: '🪞' },
             { href: '/settings', label: 'Settings', icon: '⚙️' },
             { href: '/profile', label: 'My profile', icon: '👤' },
             { href: '/debug', label: 'Debug', icon: '🔧' }]
-        : [...baseLinks, { href: '/profile', label: 'My profile', icon: '👤' }])
-    : [];
+        : [...baseLinks, { href: '/profile', label: 'My profile', icon: '👤' }]);
+
+  // Poll chat unread count for the badge on the Chat tab; fire a browser
+  // notification when NEW messages arrive while the user is elsewhere.
+  useEffect(() => {
+    if (!loggedIn || isGuest) return; // guests have no chat
+    let stop = false;
+    async function poll() {
+      try {
+        const r = await fetch('/api/chat/unread');
+        if (!r.ok || stop) return;
+        const d = await r.json();
+        const total = Number(d.total) || 0;
+        setUnreadTotal(total);
+        const prev = lastTotalRef.current;
+        lastTotalRef.current = total;
+        const away = document.hidden || !window.location.pathname.startsWith('/chat');
+        if (total > prev && away && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const n = new Notification('💬 Water Meter Readings', {
+            body: total === 1 ? 'You have 1 unread chat message' : `You have ${total} unread chat messages`,
+            icon: '/icon-192.png', tag: 'meter-chat',
+          });
+          n.onclick = () => { window.focus(); window.location.href = '/chat'; };
+        }
+      } catch {}
+    }
+    poll();
+    const t = setInterval(poll, 20000);
+    return () => { stop = true; clearInterval(t); };
+  }, [loggedIn]);
 
   const desktopLinks = links.filter((l) => l.href !== '/profile');
+
+  const ChatBadge = () => unreadTotal > 0 ? (
+    <span className="ml-1 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold bg-rose-500 text-white align-middle">
+      {unreadTotal > 99 ? '99+' : unreadTotal}
+    </span>
+  ) : null;
 
   return (
     <>
@@ -43,21 +108,20 @@ export default function MobileNav({ user, formUploadUrl }) {
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-2">
           <Link href="/" className="flex items-center gap-2 font-semibold text-base flex-1 min-w-0">
             <span className="text-xl">💧🌾</span>
-            <span className="truncate hidden sm:inline">Water Meter Dashboard</span>
-            <span className="truncate sm:hidden">WaterMeter</span>
+            <span className="truncate">{brandName}</span>
           </Link>
 
           {loggedIn && (
             <nav className="hidden xl:flex items-center gap-0.5 text-sm">
               {desktopLinks.map((l) => (
                 <Link key={l.href} href={l.href} className={`px-2 py-1.5 rounded transition whitespace-nowrap ${pathname === l.href ? 'bg-white/20' : 'hover:bg-white/10'}`}>
-                  {l.label}
+                  {l.label}{l.href === '/chat' && <ChatBadge />}
                 </Link>
               ))}
             </nav>
           )}
 
-          {loggedIn && formUploadUrl && (
+          {loggedIn && !isGuest && formUploadUrl && (
             <a href={formUploadUrl} target="_blank" rel="noreferrer" title="Open the Kobo form to submit a new reading" className="hidden sm:inline-flex items-center gap-1 bg-field-500 hover:bg-field-600 px-3 py-1.5 rounded text-sm font-medium shadow">
               ➕ <span className="hidden md:inline">New reading</span>
             </a>
@@ -68,14 +132,24 @@ export default function MobileNav({ user, formUploadUrl }) {
 
           {loggedIn ? (
             <>
-              <Link href="/profile" title="Open my profile"
-                className="px-3 py-1.5 rounded bg-white/15 hover:bg-white/25 text-sm font-medium flex items-center gap-1.5 transition max-w-[120px]">
-                {user?.photo
-                  ? <img src={user.photo} alt="" className="w-5 h-5 rounded-full object-cover border border-white/50" />
-                  : <span>👤</span>}
-                <span className="hidden sm:inline truncate">{badge}</span>
-              </Link>
-              <button onClick={doLogout} title="Log out"
+              {isGuest ? (
+                <Link href="/profile" title="Guest profile"
+                  className="px-3 py-1.5 rounded bg-white/15 hover:bg-white/25 text-sm font-medium flex items-center gap-1.5 transition max-w-[140px]">
+                  {user?.photo
+                    ? <img src={user.photo} alt="" className="w-5 h-5 rounded-full object-cover border border-white/50" />
+                    : <span>👁️</span>}
+                  <span className="hidden sm:inline truncate">Guest viewer</span>
+                </Link>
+              ) : (
+                <Link href="/profile" title="Open my profile"
+                  className="px-3 py-1.5 rounded bg-white/15 hover:bg-white/25 text-sm font-medium flex items-center gap-1.5 transition max-w-[120px]">
+                  {user?.photo
+                    ? <img src={user.photo} alt="" className="w-5 h-5 rounded-full object-cover border border-white/50" />
+                    : <span>👤</span>}
+                  <span className="hidden sm:inline truncate">{badge}</span>
+                </Link>
+              )}
+              <button onClick={() => doLogout(isGuest ? '/view' : '/')} title="Log out"
                 className="p-2 rounded hover:bg-red-500/40 text-sm transition" aria-label="Log out">⏻</button>
             </>
           ) : (
@@ -97,24 +171,37 @@ export default function MobileNav({ user, formUploadUrl }) {
       {open && loggedIn && (
         <div className="xl:hidden fixed inset-0 z-[1100] bg-black/40" onClick={() => setOpen(false)}>
           <div className="absolute top-14 right-0 w-72 bg-white shadow-xl rounded-bl-2xl overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <Link href="/profile" onClick={() => setOpen(false)} className="px-4 py-3 bg-gradient-to-r from-brand-50 to-field-50 text-brand-900 text-sm border-b flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {user?.photo ? (
-                  <img src={user.photo} alt="" className="w-8 h-8 rounded-full object-cover border border-white" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full bg-brand-200 flex items-center justify-center text-base">
-                    {isAdmin ? '👑' : '👤'}
-                  </span>
-                )}
-                <div>
-                  <div className="font-semibold leading-tight">{badge}</div>
-                  <div className="text-[10px] text-slate-500">{isAdmin ? 'Administrator · tap for profile' : 'Surveyor · tap for profile'}</div>
+            {isGuest ? (
+              <Link href="/profile" onClick={() => setOpen(false)} className="px-4 py-3 bg-gradient-to-r from-brand-50 to-field-50 text-brand-900 text-sm border-b flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-full bg-brand-200 flex items-center justify-center text-base">👁️</span>
+                  <div>
+                    <div className="font-semibold leading-tight">Guest viewer</div>
+                    <div className="text-[10px] text-slate-500">Read-only demo · tap for profile</div>
+                  </div>
                 </div>
-              </div>
-              <span className="text-slate-400">›</span>
-            </Link>
+                <span className="text-slate-400">›</span>
+              </Link>
+            ) : (
+              <Link href="/profile" onClick={() => setOpen(false)} className="px-4 py-3 bg-gradient-to-r from-brand-50 to-field-50 text-brand-900 text-sm border-b flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {user?.photo ? (
+                    <img src={user.photo} alt="" className="w-8 h-8 rounded-full object-cover border border-white" />
+                  ) : (
+                    <span className="w-8 h-8 rounded-full bg-brand-200 flex items-center justify-center text-base">
+                      {isAdmin ? '👑' : '👤'}
+                    </span>
+                  )}
+                  <div>
+                    <div className="font-semibold leading-tight">{badge}</div>
+                    <div className="text-[10px] text-slate-500">{isAdmin ? 'Administrator · tap for profile' : 'Surveyor · tap for profile'}</div>
+                  </div>
+                </div>
+                <span className="text-slate-400">›</span>
+              </Link>
+            )}
 
-            {formUploadUrl && (
+            {!isGuest && formUploadUrl && (
               <a href={formUploadUrl} target="_blank" rel="noreferrer" className="px-4 py-3 bg-field-50 text-field-900 font-medium border-b border-slate-100 flex items-center gap-3">
                 <span className="text-lg">➕</span>
                 <span>New reading (Kobo form)</span>
@@ -126,9 +213,10 @@ export default function MobileNav({ user, formUploadUrl }) {
                 <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className={`px-4 py-3 border-b border-slate-100 flex items-center gap-3 ${pathname === l.href ? 'bg-brand-50 text-brand-900 font-medium' : ''}`}>
                   <span>{l.icon}</span>
                   <span>{l.label}</span>
+                  {l.href === '/chat' && <ChatBadge />}
                 </Link>
               ))}
-              <button onClick={doLogout} className="px-4 py-3 flex items-center gap-3 text-red-600 text-left">
+              <button onClick={() => doLogout(isGuest ? '/view' : '/')} className="px-4 py-3 flex items-center gap-3 text-red-600 text-left">
                 <span>⏻</span><span>Log out</span>
               </button>
             </nav>
@@ -139,12 +227,14 @@ export default function MobileNav({ user, formUploadUrl }) {
   );
 }
 
-async function doLogout() {
+// `dest` is where to land after logging out. Guests go back to the guest
+// viewer landing (/view), everyone else to the normal landing (/).
+async function doLogout(dest = '/') {
   if (!confirm('Log out?')) return;
   await fetch('/api/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'logout' }),
   });
-  window.location.href = '/';
+  window.location.href = dest || '/';
 }

@@ -34,7 +34,7 @@ export default function LoginPage() {
   }
 
   const whatsappLink = whatsapp
-    ? `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Hi, I forgot my Water Meter Dashboard password. Could you please reset it for me? Thank you.')}`
+    ? `https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Hi, I forgot my Water Meter Readings password. Could you please reset it for me? Thank you.')}`
     : null;
 
   return (

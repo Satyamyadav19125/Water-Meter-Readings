@@ -1,6 +1,7 @@
 import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser, applyUrlFilters } from '@/lib/filter';
 import { getField } from '@/lib/fieldMap';
+import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,7 +106,7 @@ function buildKml(points, ts) {
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>Water Meter Readings ${ts}</name>
-    <description>Exported from Water Meter Dashboard</description>
+    <description>Exported from Water Meter Readings</description>
     ${placemarks}
   </Document>
 </kml>`;
@@ -113,6 +114,10 @@ function buildKml(points, ts) {
 
 export async function GET(request) {
   try {
+    const me = await getCurrentUser();
+    if (!me) return new Response('Not logged in', { status: 401 });
+    if (me.role === 'guest') return new Response('Downloads are disabled for guest viewers.', { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const format = (searchParams.get('format') || 'csv').toLowerCase();
 
@@ -191,7 +196,7 @@ if (markers.length) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
     }
 
     // CSV (default)
-    const lines = ['Submission ID,Village,Meter Serial,Reading,Surveyor,Latitude,Longitude,Time,Directions Link'];
+    const lines = ['Submission ID,Village,Meter ID,Reading,Surveyor,Latitude,Longitude,Time,Directions Link'];
     for (const p of points) {
       const cells = [p.id, p.village, p.serial, p.reading, p.surveyor, p.lat, p.lng, p.time, `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`];
       lines.push(cells.map((c) => {

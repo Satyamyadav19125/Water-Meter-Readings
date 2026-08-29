@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
+import { getDemoChat } from '@/lib/demoData';
 import {
   getMessages, sendMessage, editMessage, deleteMessage,
   reactToMessage, updateLiveLocation, endLiveLocation,
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic';
 //   'dm:<name>'    -> any admin, OR the assistant whose name === <name>
 function canAccess(user, channel) {
   if (!channel) return false;
+  // Guests may READ the group channel only (never DMs). Sending is blocked in POST.
+  if (user.role === 'guest') return channel === 'group';
   if (channel === 'group') return true;
   if (channel.startsWith('dm:')) {
     const who = channel.slice(3);
@@ -33,6 +36,9 @@ export async function GET(request) {
   const channel = searchParams.get('channel') || 'group';
   if (!canAccess(user, channel)) return NextResponse.json({ error: 'No access to this chat' }, { status: 403 });
 
+  // Guests see a fake conversation, never the real team's messages.
+  if (user.role === 'guest') return NextResponse.json({ messages: getDemoChat(), me: 'guest' });
+
   const me = senderIdOf(user);
   const messages = await getMessages(channel, me);
   return NextResponse.json({ messages, me });
@@ -41,6 +47,8 @@ export async function GET(request) {
 export async function POST(request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
+  // Guests are read-only — they can see the group chat but not post to it.
+  if (user.role === 'guest') return NextResponse.json({ error: 'Guests cannot send messages' }, { status: 403 });
 
   let body;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }

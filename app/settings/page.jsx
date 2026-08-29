@@ -1,41 +1,49 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { APP_LEVEL } from '@/lib/version';
 import DataStorage from '@/components/DataStorage';
 
 const FLAG_LABELS = {
-  rollback: 'Rollback (reading went backwards)',
-  reverse: 'Reverse (end < start within submission)',
-  huge_jump: 'Huge jump (>100,000 units)',
-  growth_anomaly: 'Growth anomaly (5× normal rate)',
-  stale_no_reading: 'Stale (no reading for 10+ days)',
-  stale_unchanged: 'Stuck (3 same readings)',
+  // ON by default for meters — a cumulative meter cannot go backwards.
+  rollback: 'Rollback — reading went backwards (a meter cannot decrease)',
+  reverse: 'End reading lower than start reading (within one submission)',
+  huge_jump: 'Huge jump between two readings (likely an extra digit)',
+  growth_anomaly: 'Usage rose far faster than usual for this meter',
+  stale_no_reading: 'Stale — no reading taken for 10+ days',
+  stale_unchanged: 'Stuck — 3 identical readings in a row',
   future_date: 'Future-dated reading',
-  out_of_sequence: 'Date earlier than previous reading',
-  zero_consumption: 'Zero usage over 7+ days (stuck/bypassed)',
-  duplicate_same_day: 'Same meter read twice in one day',
-  missing_photo: 'Missing meter photo',
-  invalid_meter_id: 'Invalid meter ID format (not WM######)',
-  gps_outlier: 'GPS far from meter\'s usual spot',
-  digit_count: 'Digit-count jump (likely typo)',
+  out_of_sequence: 'Reading date earlier than the previous one',
+  location_far: 'GPS far outside the whole project area (swapped / mistyped lat-long)',
+  // Opt-in extras (off by default)
+  missing_photo: 'Missing meter photo on a submission',
+  invalid_meter_id: 'Meter ID not in the expected WM###### format',
+  zero_consumption: 'No usage over 7+ days (reading stayed flat)',
+  gps_outlier: "GPS far from this meter's usual spot",
+  digit_count: 'Digit-count jump in the reading (likely typo)',
+  duplicate_same_day: 'Duplicate — same meter read twice in one day',
   identical_gps: 'Same GPS used by different meters',
-  fabrication_speed: 'Surveyor logged readings impossibly fast (<15s apart)',
+  fabrication_speed: 'Readings logged impossibly fast (<15s apart)',
   night_reading: 'Reading taken at night (10pm–5am)',
-  village_outlier: 'Usage far above village neighbours',
+  village_outlier: 'Usage far above other meters in the same village',
 };
 
-// All sections, in the order shown on the page. Order matters: this is the
-// new order — Kobo forms first (the critical season switch), then project
-// info, then the rest, with Data & storage at the very bottom.
+// All sections, in the order shown on the page.
 const SECTIONS = [
   { id: 'forms',    icon: '📋', label: 'Kobo forms',      hint: 'Switch seasons' },
   { id: 'project',  icon: '🌱', label: 'Project info',    hint: 'Name & description' },
   { id: 'reading',  icon: '🎯', label: 'Reading targets', hint: 'Count & period' },
+  { id: 'meter',    icon: '📏', label: 'Meter parameters', hint: 'GPS & flag window' },
+  { id: 'registry', icon: '🎚️', label: 'Farms & meters',  hint: 'Turn on/off' },
+  { id: 'security', icon: '🔐', label: 'Admin passwords', hint: 'Change admin login' },
+  { id: 'guest',    icon: '👁️', label: 'Guest & landing', hint: 'Viewer link & landing pages' },
   { id: 'photo',    icon: '🖼️', label: 'Photo quality',  hint: 'HD vs space' },
   { id: 'contact',  icon: '📬', label: 'Contact info',    hint: 'Emails & phone' },
   { id: 'flags',    icon: '🚩', label: 'Red flag rules',  hint: 'What to detect' },
   { id: 'storage',  icon: '🗄️', label: 'Data & storage', hint: 'DB usage' },
 ];
+
+const METER_DEFAULTS = { maxLocationKm: 100, flagWindowDays: '', hugeJumpThreshold: 100000 };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState(null);
@@ -45,10 +53,14 @@ export default function SettingsPage() {
   const [error, setError] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [flagSearch, setFlagSearch] = useState('');
+  const [activeForm, setActiveForm] = useState(null);
+  const [adminInfo, setAdminInfo] = useState(null);
   const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [origin, setOrigin] = useState('');
   const dirtyRef = useRef(false);
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (typeof window !== 'undefined') setOrigin(window.location.origin); }, []);
 
   // Warn before closing the tab if there are unsaved changes
   useEffect(() => {
@@ -67,13 +79,22 @@ export default function SettingsPage() {
 
   async function load() {
     setLoading(true);
-    const res = await fetch('/api/settings');
-    const data = await res.json();
+    let data = {};
+    try {
+      const res = await fetch('/api/settings');
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Settings failed to load (HTTP ${res.status})`);
+    } catch (e) {
+      setError(e.message);
+      setLoading(false);
+      return;
+    }
     if (data.settings) {
       // Defensive: legacy DB documents may be missing newer sub-objects.
-      // Fill them with safe defaults so the page never crashes on access.
       setSettings({
         contact: {}, redFlags: {}, project: {}, forms: [],
+        meter: { ...METER_DEFAULTS },
+        security: { adminPasswords: [] },
         reading: {
           target: 2, periodLabel: 'week', periodDays: 7,
           photoMaxPx: 1600, photoQuality: 0.85,
@@ -84,6 +105,12 @@ export default function SettingsPage() {
         redFlags: { ...(data.settings.redFlags || {}) },
         project: { ...(data.settings.project || {}) },
         forms: Array.isArray(data.settings.forms) ? data.settings.forms : [],
+        meter: { ...METER_DEFAULTS, ...(data.settings.meter || {}) },
+        security: {
+          adminPasswords: (data.settings.security?.adminPasswords?.length
+            ? data.settings.security.adminPasswords
+            : (data.adminInfo?.passwords || [])),
+        },
         reading: {
           target: 2, periodLabel: 'week', periodDays: 7,
           photoMaxPx: 1600, photoQuality: 0.85,
@@ -91,6 +118,8 @@ export default function SettingsPage() {
           ...(data.settings.reading || {}),
         },
       });
+      setActiveForm(data.activeForm || null);
+      setAdminInfo(data.adminInfo || null);
       setDirty(false);
       dirtyRef.current = false;
     } else {
@@ -118,7 +147,13 @@ export default function SettingsPage() {
 
   function updateContact(k, v) { setS({ ...settings, contact: { ...settings.contact, [k]: v } }); }
   function updateFlag(k, v) { setS({ ...settings, redFlags: { ...settings.redFlags, [k]: v } }); }
+  function updateMeter(k, v) { setS({ ...settings, meter: { ...(settings.meter || {}), [k]: v } }); }
+  function updateSecurity(list) { setS({ ...settings, security: { ...(settings.security || {}), adminPasswords: list } }); }
   function updateProject(k, v) { setS({ ...settings, project: { ...settings.project, [k]: v } }); }
+  function updateGuest(k, v) { setS({ ...settings, guest: { ...(settings.guest || {}), [k]: v } }); }
+  function updateGuestShow(k, v) { setS({ ...settings, guest: { ...(settings.guest || {}), show: { ...((settings.guest || {}).show || {}), [k]: v } } }); }
+  function updateGuestLanding(k, v) { setS({ ...settings, guest: { ...(settings.guest || {}), landing: { ...((settings.guest || {}).landing || {}), [k]: v } } }); }
+  function updateLandingControls(k, v) { setS({ ...settings, landingControls: { ...(settings.landingControls || {}), [k]: v } }); }
 
   function addForm() {
     const list = [...(settings.forms || [])];
@@ -165,7 +200,7 @@ export default function SettingsPage() {
       <div className="sticky top-[60px] z-40 -mx-3 sm:mx-0 bg-slate-100/95 backdrop-blur px-3 sm:px-0 py-2 border-b border-slate-200">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <h1 className="text-xl font-bold">⚙️ Settings</h1>
+            <h1 className="text-xl font-bold">⚙️ Settings <span className="text-xs font-normal text-slate-400 align-middle">Level {APP_LEVEL}</span></h1>
             {lastSavedAt && !dirty && (
               <p className="text-[11px] text-slate-500">Last saved {lastSavedAt.toLocaleTimeString()}</p>
             )}
@@ -198,6 +233,14 @@ export default function SettingsPage() {
       {/* Kobo forms — moved to top: the most important admin action */}
       <Section id="forms" title="📋 Kobo forms" subtitle="Switch between seasonal forms (Kharif, Rabi, etc). Mark exactly one as active.">
         <div className="space-y-3">
+          {activeForm && (
+            <div className="bg-brand-50 border border-brand-200 rounded-lg p-2.5 text-xs space-y-0.5">
+              <div className="font-semibold text-brand-900">🔗 Currently active form</div>
+              <div className="text-slate-600">Name: <b>{activeForm.name}</b></div>
+              <div className="text-slate-600">Server: <span className="font-mono">{activeForm.baseUrl}</span></div>
+              <div className="text-slate-600">Unique ID (asset UID): <span className="font-mono select-all bg-white/70 px-1 rounded border border-brand-100">{activeForm.assetUid || '—'}</span></div>
+            </div>
+          )}
           {(settings.forms || []).length === 0 && (
             <p className="text-xs text-slate-500 italic">No forms saved yet — using env vars as default. Add a form below to override.</p>
           )}
@@ -236,11 +279,96 @@ export default function SettingsPage() {
         <Field label="Kobo form upload URL (the 'New reading' button)">
           <input value={settings.project.formUploadUrl || ''} onChange={(e) => updateProject('formUploadUrl', e.target.value)} placeholder="https://ee.kobotoolbox.org/x/..." className="input"/>
         </Field>
+        <div className="bg-sky-50 border border-sky-100 rounded-lg p-2.5 text-xs text-sky-900">
+          <b>➕ New reading button:</b> when this URL is set, the top bar shows a <b>New reading</b> button that opens this Kobo form for the surveyor. Use the <b>web form (Enketo) URL</b> — in KoboToolbox open the form → <b>Collect data</b> → copy the <b>"Online-Offline (multiple submission)"</b> link (it looks like <span className="font-mono">ee.kobotoolbox.org/x/…</span>).
+        </div>
       </Section>
 
       {/* Reading targets */}
       <Section id="reading" title="🎯 Reading targets" subtitle="How many readings each meter needs, and how often">
         <ReadingTargets settings={settings} setSettings={setS} />
+      </Section>
+
+      {/* Meter parameters — GPS sanity + red-flag review window */}
+      <Section id="meter" title="📏 Meter parameters"
+        subtitle="Fine-tune a couple of the data-quality checks. Clear a box to disable that check.">
+        <div className="border border-rose-200 bg-rose-50/40 rounded-lg p-3 space-y-2">
+          <div className="text-xs font-semibold text-slate-700">📍 GPS sanity check</div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Max distance from project centre (km)">
+              <input type="number" min="1" value={settings.meter?.maxLocationKm ?? ''} placeholder="100"
+                onChange={(e) => updateMeter('maxLocationKm', e.target.value === '' ? '' : Number(e.target.value))} className="input"/>
+            </Field>
+          </div>
+          <p className="text-[11px] text-slate-500">Any reading whose GPS is farther than this from the centre of <i>all</i> readings raises <i>GPS far outside the whole project area</i> — this catches a swapped or mistyped latitude/longitude (e.g. a meter that lands hundreds of km away). Requires the <b>🚩 Red flag rules</b> toggle of the same name to be on. Clear the box to disable.</p>
+        </div>
+        <div className="border border-amber-200 bg-amber-50/40 rounded-lg p-3 space-y-2">
+          <div className="text-xs font-semibold text-slate-700">🗓️ Red-flag review window</div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Only red-flag readings from the last N days">
+              <input type="number" min="1" value={settings.meter?.flagWindowDays ?? ''} placeholder="e.g. 20 (blank = all)"
+                onChange={(e) => updateMeter('flagWindowDays', e.target.value === '' ? '' : Number(e.target.value))} className="input"/>
+            </Field>
+          </div>
+          <p className="text-[11px] text-slate-500">Old readings that haven't been touched in a while stop showing as red flags — set this to (say) 20 so only recent readings are flagged. Leave blank to flag every reading regardless of age. Older readings still count as history for comparisons; they just don't clutter the flag list.</p>
+        </div>
+        <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+          <div className="text-xs font-semibold text-slate-700">🔢 Huge-jump threshold</div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Flag a jump bigger than (units)">
+              <input type="number" min="1" value={settings.meter?.hugeJumpThreshold ?? ''} placeholder="100000"
+                onChange={(e) => updateMeter('hugeJumpThreshold', e.target.value === '' ? '' : Number(e.target.value))} className="input"/>
+            </Field>
+          </div>
+          <p className="text-[11px] text-slate-500">A rise bigger than this between two readings raises the <i>Huge jump</i> flag (usually an extra digit typed by mistake). Keep it well above normal usage so genuine consumption never trips it.</p>
+        </div>
+      </Section>
+
+      {/* Farms & meters on/off registry */}
+      <Section id="registry" title="🎚️ Turn farms & meters on/off"
+        subtitle="Disabled farms and meters disappear from the surveyor's view, are never counted as missed, and never raise red flags.">
+        <RegistryPanel />
+      </Section>
+
+      {/* Admin passwords — change admin login without touching Vercel */}
+      <Section id="security" title="🔐 Admin passwords"
+        subtitle="Passwords that log someone in as an ADMIN. Surveyor passwords are managed per person in Assignment → Team.">
+        {adminInfo && (
+          <div className="bg-brand-50 border border-brand-200 rounded-lg p-2.5 text-xs mb-2">
+            <b>{adminInfo.count} admin{adminInfo.count === 1 ? '' : 's'}</b> configured
+            {adminInfo.source === 'env' ? ' (from the ADMIN_PASSWORD env var — edit below and Save to manage them here instead)' : ' (managed here)'}.
+            {' '}Logged in as: <b>{adminInfo.names[adminInfo.youIndex] || 'Admin'}</b>
+          </div>
+        )}
+        <div className="space-y-2">
+          {(settings.security?.adminPasswords || []).map((pw, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 w-24 truncate">
+                {(adminInfo?.names?.[i]) || `Admin ${i + 1}`}{adminInfo?.youIndex === i ? ' (you)' : ''}
+              </span>
+              <input value={pw} onChange={(e) => updateSecurity((settings.security?.adminPasswords || []).map((x, j) => j === i ? e.target.value : x))}
+                placeholder="At least 4 characters" className="input flex-1 font-mono"/>
+              <button onClick={() => updateSecurity((settings.security?.adminPasswords || []).filter((_, j) => j !== i))} className="text-red-600 text-sm px-1">🗑️</button>
+            </div>
+          ))}
+          <button onClick={() => updateSecurity([...(settings.security?.adminPasswords || []), ''])}
+            className="w-full py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-600 hover:border-brand-500 text-sm">
+            + Add admin password
+          </button>
+        </div>
+        <div className="text-xs text-slate-500 space-y-1 mt-2">
+          <p>• If this list has at least one password, it <b>replaces</b> the <span className="font-mono">ADMIN_PASSWORD</span> env var on Vercel. Leave it empty to keep using the env var.</p>
+          <p>• Each password = one admin (Admin 1, Admin 2…), matching the profile order in <span className="font-mono">adminProfiles</span>.</p>
+          <p>• ⚠️ After saving a change to your own password you will be logged out — log back in with the new one. Passwords shorter than 4 characters are ignored.</p>
+        </div>
+      </Section>
+
+      {/* Guest viewer + landing page control */}
+      <Section id="guest" title="👁️ Guest viewer & landing pages"
+        subtitle="A read-only link you can share so people can explore the tool safely, plus full control of both landing pages.">
+        <GuestPanel settings={settings} origin={origin}
+          updateGuest={updateGuest} updateGuestShow={updateGuestShow}
+          updateGuestLanding={updateGuestLanding} updateLandingControls={updateLandingControls} />
       </Section>
 
       {/* Photo quality */}
@@ -261,6 +389,33 @@ export default function SettingsPage() {
           <Toggle label="Show phone" checked={settings.contact.showPhone} onChange={(v) => updateContact('showPhone', v)}/>
           <Toggle label="Show on landing page" checked={settings.contact.showOnLanding} onChange={(v) => updateContact('showOnLanding', v)}/>
           <Toggle label="Show in footer" checked={settings.contact.showInFooter} onChange={(v) => updateContact('showInFooter', v)}/>
+        </div>
+
+        {/* People shown on the landing page — each with a designation */}
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <div className="text-sm font-medium text-slate-700 mb-1">👥 People on the landing page</div>
+          <p className="text-xs text-slate-500 mb-2">Add as many people as you want — name, designation, and contact details. They appear in "Get in touch" on the landing page in this order. If this list is empty, the two email/phone fields above are shown instead.</p>
+          <div className="space-y-2">
+            {(settings.contact.people || []).map((person, i) => (
+              <div key={i} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-500">Person {i + 1}</span>
+                  <button onClick={() => updateContact('people', (settings.contact.people || []).filter((_, j) => j !== i))} className="text-red-600 text-sm">🗑️</button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input value={person.name || ''} onChange={(e) => updateContact('people', (settings.contact.people || []).map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="Name (e.g. Satyam Yadav)" className="input"/>
+                  <input value={person.designation || ''} onChange={(e) => updateContact('people', (settings.contact.people || []).map((x, j) => j === i ? { ...x, designation: e.target.value } : x))} placeholder="Designation (e.g. Lead Research Assistant)" className="input"/>
+                  <input value={person.phone || ''} onChange={(e) => updateContact('people', (settings.contact.people || []).map((x, j) => j === i ? { ...x, phone: e.target.value } : x))} placeholder="Phone (optional)" className="input"/>
+                  <input value={person.email || ''} onChange={(e) => updateContact('people', (settings.contact.people || []).map((x, j) => j === i ? { ...x, email: e.target.value } : x))} placeholder="Email (optional)" className="input"/>
+                  <input value={person.whatsapp || ''} onChange={(e) => updateContact('people', (settings.contact.people || []).map((x, j) => j === i ? { ...x, whatsapp: e.target.value } : x))} placeholder="WhatsApp with country code (optional)" className="input sm:col-span-2"/>
+                </div>
+              </div>
+            ))}
+            <button onClick={() => updateContact('people', [...(settings.contact.people || []), { name: '', designation: '', phone: '', email: '', whatsapp: '' }])}
+              className="w-full py-2.5 border-2 border-dashed border-slate-300 rounded-lg text-slate-600 hover:border-brand-500 text-sm">
+              + Add person
+            </button>
+          </div>
         </div>
       </Section>
 
@@ -320,6 +475,109 @@ function Toggle({ label, checked, onChange }) {
       <span>{label}</span>
       <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4"/>
     </label>
+  );
+}
+
+// ---- Guest viewer + landing page controls ----
+const GUEST_SECTIONS = [
+  ['overview', 'Overview'], ['submissions', 'Submissions'], ['map', 'Map'],
+  ['usage', 'Water usage'], ['assignment', 'Assignment / readings'], ['team', 'Team (demo)'],
+  ['chat', 'Chat (read-only)'], ['redFlags', 'Red-flag info'], ['charts', 'Charts'],
+];
+function GuestPanel({ settings, origin, updateGuest, updateGuestShow, updateGuestLanding, updateLandingControls }) {
+  const g = settings.guest || {};
+  const show = g.show || {};
+  const gl = g.landing || {};
+  const lc = settings.landingControls || {};
+  const [copied, setCopied] = useState(false);
+  const link = `${origin || ''}/view`;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+  };
+  return (
+    <div className="space-y-4">
+      <Toggle label="Enable the guest viewer link" checked={g.enabled === true} onChange={(v) => updateGuest('enabled', v)} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Guest password (you choose it)">
+          <input value={g.password || ''} onChange={(e) => updateGuest('password', e.target.value)} placeholder="e.g. show2026" className="input font-mono"/>
+        </Field>
+        <Field label="Max readings a guest can see">
+          <input type="number" min="1" max="200" value={g.maxReadings ?? 10} onChange={(e) => updateGuest('maxReadings', Math.max(1, Number(e.target.value) || 10))} className="input"/>
+        </Field>
+      </div>
+      <Field label="App name shown to guests (top bar & browser tab)">
+        <input value={g.appName || ''} onChange={(e) => updateGuest('appName', e.target.value)} placeholder="e.g. Water Monitoring — leave blank for “Field Readings”" className="input"/>
+      </Field>
+
+      {/* Shareable link */}
+      <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 space-y-1.5">
+        <div className="text-xs font-semibold text-brand-900">🔗 Shareable viewer link</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-brand-100 break-all flex-1 min-w-[180px]">{link || '…'}</code>
+          <button onClick={copy} className="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700">{copied ? '✓ Copied' : 'Copy link'}</button>
+        </div>
+        <p className="text-[11px] text-slate-600">Send this link + the guest password to anyone you want to show the tool. They see a read-only demo — they can't edit, download, open Kobo, or see more than {g.maxReadings ?? 10} readings. <b>Save your changes first</b> for the link to work.</p>
+      </div>
+
+      {/* What a guest can open */}
+      <div className="border border-slate-200 rounded-lg p-3">
+        <div className="text-xs font-semibold text-slate-700 mb-1.5">What the guest can open</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          {GUEST_SECTIONS.map(([k, label]) => (
+            <Toggle key={k} label={label} checked={show[k] !== false} onChange={(v) => updateGuestShow(k, v)} />
+          ))}
+        </div>
+        <p className="text-[11px] text-slate-500 mt-1">Settings, Debug, Kobo View, Chat and all downloads are <b>always</b> hidden from guests.</p>
+      </div>
+
+      {/* Guest landing page */}
+      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+        <div className="text-xs font-semibold text-slate-700">Guest landing page (what the /view link shows)</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <Field label="Title (blank = project name)"><input value={gl.projectName || ''} onChange={(e) => updateGuestLanding('projectName', e.target.value)} className="input"/></Field>
+          <Field label="Tagline"><input value={gl.tagline ?? ''} onChange={(e) => updateGuestLanding('tagline', e.target.value)} placeholder="Water meter monitoring dashboard" className="input"/></Field>
+        </div>
+        <Field label="Description (blank = a generic line)"><textarea value={gl.description || ''} onChange={(e) => updateGuestLanding('description', e.target.value)} rows="2" className="input"/></Field>
+        <div className="grid grid-cols-2 gap-1">
+          <Toggle label="Show university names" checked={gl.showUniversities === true} onChange={(v) => updateGuestLanding('showUniversities', v)} />
+          <Toggle label="Show research blurb" checked={gl.showResearchLine === true} onChange={(v) => updateGuestLanding('showResearchLine', v)} />
+          <Toggle label="Show feature cards" checked={gl.showFeatures !== false} onChange={(v) => updateGuestLanding('showFeatures', v)} />
+          <Toggle label="Show contact section" checked={gl.showContact === true} onChange={(v) => updateGuestLanding('showContact', v)} />
+        </div>
+        <p className="text-[11px] text-slate-500">By default the guest landing hides the universities, the research blurb and any “AWD” research wording.</p>
+      </div>
+
+      {/* Normal landing page */}
+      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+        <div className="text-xs font-semibold text-slate-700">Normal landing page (the public one everyone sees)</div>
+        <Field label="Tagline override (blank = the Project info tagline)"><input value={lc.tagline || ''} onChange={(e) => updateLandingControls('tagline', e.target.value)} className="input"/></Field>
+        <div className="grid grid-cols-2 gap-1">
+          <Toggle label="Show university names" checked={lc.showUniversities !== false} onChange={(v) => updateLandingControls('showUniversities', v)} />
+          <Toggle label="Show research blurb" checked={lc.showResearchLine !== false} onChange={(v) => updateLandingControls('showResearchLine', v)} />
+          <Toggle label="Show feature cards" checked={lc.showFeatures !== false} onChange={(v) => updateLandingControls('showFeatures', v)} />
+        </div>
+        <div className="border-t border-slate-100 pt-2 mt-1">
+          <Toggle label="🔒 Show the GENERIC landing to everyone who isn't logged in" checked={lc.publicGeneric === true} onChange={(v) => updateLandingControls('publicGeneric', v)} />
+          <p className="text-[11px] text-slate-500 mt-1">Turn this on so that even the root URL (not just the <b>/view</b> link) hides your branding from anyone without a login — the safest way to share the guest link. (A web address itself can never be hidden, but this stops it revealing anything.)</p>
+        </div>
+        <p className="text-[11px] text-slate-500">The contact section on the normal landing is controlled in <b>📬 Contact info → Show on landing page</b>.</p>
+      </div>
+    </div>
+  );
+}
+
+function CountTile({ label, value, sub, tone = 'slate' }) {
+  const tones = {
+    emerald: 'bg-emerald-50 text-emerald-900 border-emerald-100',
+    slate: 'bg-slate-50 text-slate-700 border-slate-200',
+  };
+  return (
+    <div className={`rounded-lg border p-2.5 ${tones[tone] || tones.slate}`}>
+      <div className="text-xl font-bold tabular-nums leading-none">{value}</div>
+      <div className="text-[11px] font-medium mt-0.5">{label}</div>
+      {sub && <div className="text-[10px] opacity-70">{sub}</div>}
+    </div>
   );
 }
 
@@ -414,6 +672,164 @@ function PhotoQuality({ settings, setSettings }) {
       <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-sm text-amber-900">
         <b>Database budget:</b> the free MongoDB tier is 512 MB total. At 1600 px the meter photos are sharp and zoom-friendly; at 2400 px they're near-original phone quality. Profile photos are small so 600 px is plenty.
       </div>
+    </div>
+  );
+}
+
+// ---- Registry panel: turn farms and meters on/off ----
+function RegistryPanel() {
+  const [master, setMaster] = useState(null);      // { villages, pipes:[{serial,farm,village}] }
+  const [offFarms, setOffFarms] = useState(new Set());
+  const [offMeters, setOffMeters] = useState(new Set());
+  const [q, setQ] = useState('');
+  const [view, setView] = useState('all'); // all | active | off
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/registry').then((r) => r.json()).catch(() => ({ farms: [], pipes: [], master: null }))
+      .then((d) => {
+        setOffFarms(new Set((d.farms || []).map(String)));
+        setOffMeters(new Set((d.pipes || []).map(String)));
+        setMaster(d.master || null);
+        setLoaded(true);
+      });
+  }, []);
+
+  // Group the master meter list by farm for a compact on/off tree.
+  const farms = {};
+  if (master?.pipes) {
+    for (const p of master.pipes) {
+      const farm = p.farm || '(no farm)';
+      if (!farms[farm]) farms[farm] = { village: p.village, meters: [] };
+      farms[farm].meters.push(p.serial);
+    }
+  }
+  // Live counts of how many farms and meters are active vs switched off.
+  const totalFarms = Object.keys(farms).length;
+  const totalMeters = master?.pipes?.length || 0;
+  const meterIsOff = (serial, farm) => offMeters.has(serial) || offFarms.has(farm);
+  let offMeterCount = 0;
+  for (const [farm, info] of Object.entries(farms)) {
+    for (const s of info.meters) if (meterIsOff(s, farm)) offMeterCount += 1;
+  }
+  const offFarmCount = Object.keys(farms).filter((f) => offFarms.has(f)).length;
+  const activeFarms = totalFarms - offFarmCount;
+  const activeMeters = totalMeters - offMeterCount;
+
+  // Search accepts several IDs separated by commas. A farm matches if its own ID
+  // matches OR any of its meters match.
+  const terms = q.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const matches = (farm, meters) => {
+    if (terms.length === 0) return true;
+    return terms.some((t) => farm.toLowerCase().includes(t) || meters.some((p) => p.toLowerCase().includes(t)));
+  };
+  const matchesView = (farm) => view === 'all' || (view === 'active' ? !offFarms.has(farm) : offFarms.has(farm));
+  const farmList = Object.entries(farms)
+    .filter(([farm, info]) => matches(farm, info.meters) && matchesView(farm))
+    .sort((a, b) => a[0].localeCompare(b[0]));
+
+  function toggleSet(setter, set, key) {
+    const next = new Set(set);
+    next.has(key) ? next.delete(key) : next.add(key);
+    setter(next);
+  }
+  async function save() {
+    setBusy(true); setMsg('');
+    try {
+      const res = await fetch('/api/registry', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ farms: [...offFarms], pipes: [...offMeters] }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Save failed');
+      setMsg('✓ Saved. Disabled farms/meters are now hidden from surveyors.');
+    } catch (e) { setMsg(`⚠️ ${e.message}`); }
+    setBusy(false);
+  }
+
+  if (!loaded) return <div className="text-sm text-slate-500">Loading farms & meters…</div>;
+  if (!master?.pipes?.length) return <div className="text-sm text-slate-500">No meter list available from the Kobo form yet. This reads the form&#39;s village→farm→meter choice lists; if your form uses a CSV media file for meters instead of choice lists, this list can&#39;t be built.</div>;
+
+  return (
+    <div className="space-y-3">
+      {/* Live active / off summary — how many farms and meters are on the map */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <CountTile label="Active farms" value={activeFarms} sub={`of ${totalFarms}`} tone="emerald" />
+        <CountTile label="Active meters" value={activeMeters} sub={`of ${totalMeters}`} tone="emerald" />
+        <CountTile label="Farms off" value={offFarmCount} sub={offFarmCount ? 'hidden from surveyors' : 'none'} tone="slate" />
+        <CountTile label="Meters off" value={offMeterCount} sub={offMeterCount ? 'incl. whole-farm off' : 'none'} tone="slate" />
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search farm or meter IDs — separate with commas"
+          className="input flex-1 min-w-[160px]" />
+        <div className="flex bg-slate-100 rounded-lg p-0.5 text-xs">
+          {[['all', 'All'], ['active', 'Active'], ['off', 'Off']].map(([k, lbl]) => (
+            <button key={k} onClick={() => setView(k)}
+              className={`px-2.5 py-1.5 rounded-md whitespace-nowrap transition ${view === k ? 'bg-brand-600 text-white font-medium' : 'text-slate-600 hover:bg-white'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[26rem] overflow-y-auto">
+        {farmList.length === 0 && (
+          <div className="p-4 text-center text-xs text-slate-400">
+            {view === 'off' ? 'No farms are switched off.' : view === 'active' ? 'No active farms match.' : 'No farms match your search.'}
+          </div>
+        )}
+        {farmList.map(([farm, info]) => {
+          const farmOff = offFarms.has(farm);
+          return (
+            <div key={farm} className={`p-2.5 ${farmOff ? 'bg-slate-50 opacity-70' : ''}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-xs font-semibold truncate">{farm}</div>
+                  <div className="text-[11px] text-slate-500">{info.village} · {info.meters.length} meter(s)</div>
+                </div>
+                <button onClick={() => toggleSet(setOffFarms, offFarms, farm)}
+                  className={`shrink-0 text-xs px-2.5 py-1 rounded-full border ${farmOff ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-emerald-50 text-emerald-700 border-emerald-300'}`}>
+                  {farmOff ? '○ Off' : '● On'}
+                </button>
+              </div>
+              {!farmOff && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {info.meters.map((serial) => {
+                    const meterOff = offMeters.has(serial);
+                    return (
+                      <button key={serial} onClick={() => toggleSet(setOffMeters, offMeters, serial)}
+                        className={`text-[11px] font-mono px-2 py-0.5 rounded border ${meterOff ? 'bg-slate-100 text-slate-400 border-slate-200 line-through' : 'bg-white text-slate-700 border-slate-300'}`}>
+                        {serial}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {terms.length > 0 && farmList.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap bg-slate-50 border border-slate-200 rounded-lg p-2">
+          <span className="text-xs text-slate-600">{farmList.length} farm(s) matched —</span>
+          <button onClick={() => { const n = new Set(offFarms); farmList.forEach(([f]) => n.add(f)); setOffFarms(n); }}
+            className="text-xs px-2.5 py-1 rounded border border-slate-400 text-slate-700 hover:bg-white">Turn all OFF</button>
+          <button onClick={() => { const n = new Set(offFarms); farmList.forEach(([f]) => n.delete(f)); setOffFarms(n); }}
+            className="text-xs px-2.5 py-1 rounded border border-emerald-400 text-emerald-700 hover:bg-white">Turn all ON</button>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={busy}
+          className="px-3 py-2 text-sm rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 disabled:opacity-50">
+          {busy ? 'Saving…' : 'Save farm & meter settings'}
+        </button>
+        {msg && <span className="text-xs text-slate-700">{msg}</span>}
+      </div>
+      <p className="text-[11px] text-slate-500">Search several at once by separating IDs with commas, then use <b>Turn all OFF/ON</b>. Tap a farm's <b>On/Off</b> to disable the whole plot, or tap individual meter codes to disable just those. Disabled units vanish from surveyors, are excluded from red flags, and don't count toward missed readings.</p>
     </div>
   );
 }

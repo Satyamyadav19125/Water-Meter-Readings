@@ -139,13 +139,10 @@ export default function AssignmentsPage() {
 
       {!user && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900"><a href="/login" className="underline font-medium">Log in</a> to view or manage assignments.</div>}
 
-      {/* Admin: pending/done summary FIRST, people cards after */}
+      {/* People & villages come FIRST — the meter tracker lives in the
+          "Missed readings" tab so the same table isn't shown twice. */}
       {isAdmin && (
-        <div>
-          <h3 className="text-base font-semibold text-slate-800 mb-2">📊 Meter tracking — all villages</h3>
-          <MeterStatusTable />
-          <h3 className="text-base font-semibold text-slate-800 mt-5 mb-1">👥 People & villages</h3>
-        </div>
+        <h3 className="text-base font-semibold text-slate-800 mb-1">👥 People & villages</h3>
       )}
 
       {/* Field assistant: villages FIRST, weekly tracker after */}
@@ -207,10 +204,17 @@ export default function AssignmentsPage() {
                         <input value={person.email || ''} onChange={(e) => updatePerson(i, 'email', e.target.value)} placeholder="email" className="aw-input"/>
                       </Field>
                     </div>
-                    <PhotoUpload value={person.photo} onChange={(url) => updatePerson(i, 'photo', url)} label="Photo" />
+                    <PhotoUpload value={person.photo} onChange={(url) => updatePerson(i, 'photo', url)} label="Photo" showPreview={false} />
                     <Field label="Bio">
                       <input value={person.bio || ''} onChange={(e) => updatePerson(i, 'bio', e.target.value)} placeholder="Short bio" className="aw-input"/>
                     </Field>
+                    <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
+                      <input type="checkbox" checked={person.showFlags === true}
+                        onChange={(e) => updatePerson(i, 'showFlags', e.target.checked)}
+                        className="w-4 h-4 accent-brand-600" />
+                      <span className="text-sm text-slate-700">🚩 Let this surveyor see their own red flags</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500 -mt-1 ml-6">When on, {person.person || 'this surveyor'} sees the mistakes flagged on their submissions. When off (default), they only see a clean positive view.</p>
                   </div>
                 ) : (
                   <div className="text-xs text-slate-600">

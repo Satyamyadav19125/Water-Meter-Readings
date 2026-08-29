@@ -105,10 +105,18 @@ export function DonutChart({ data, size = 220, emptyText = 'No data' }) {
   const radius = size / 2 - 10;
   const innerR = radius * 0.6;
 
+  // A slice that fills the whole circle (e.g. 100% clean, 0 flagged) can't be
+  // drawn as a single SVG arc — its start and end points coincide, so the arc
+  // collapses to nothing and the donut renders blank. Draw those as a full ring
+  // (two half-circle arcs, inner hole cut with even-odd fill) instead.
+  const fullRing = `M ${cx} ${cy - radius} A ${radius} ${radius} 0 1 1 ${cx - 0.01} ${cy - radius} Z `
+    + `M ${cx} ${cy - innerR} A ${innerR} ${innerR} 0 1 0 ${cx - 0.01} ${cy - innerR} Z`;
+
   let startAngle = -Math.PI / 2;
   const slices = data.map((d) => {
     const angle = (d.value / total) * Math.PI * 2;
     const endAngle = startAngle + angle;
+    const isFull = angle >= Math.PI * 2 - 1e-6;
     const large = angle > Math.PI ? 1 : 0;
     const x1 = cx + radius * Math.cos(startAngle);
     const y1 = cy + radius * Math.sin(startAngle);
@@ -118,8 +126,10 @@ export function DonutChart({ data, size = 220, emptyText = 'No data' }) {
     const y3 = cy + innerR * Math.sin(endAngle);
     const x4 = cx + innerR * Math.cos(startAngle);
     const y4 = cy + innerR * Math.sin(startAngle);
-    const path = `M ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${large} 0 ${x4} ${y4} Z`;
-    const slice = { ...d, path, percent: (d.value / total) * 100 };
+    const path = isFull
+      ? fullRing
+      : `M ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${large} 0 ${x4} ${y4} Z`;
+    const slice = { ...d, path, isFull, percent: (d.value / total) * 100 };
     startAngle = endAngle;
     return slice;
   });
@@ -128,7 +138,7 @@ export function DonutChart({ data, size = 220, emptyText = 'No data' }) {
     <div className="flex flex-col sm:flex-row items-center gap-4">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {slices.map((s, i) => (
-          <path key={i} d={s.path} fill={s.color}>
+          <path key={i} d={s.path} fill={s.color} fillRule={s.isFull ? 'evenodd' : 'nonzero'}>
             <title>{s.label}: {s.value} ({s.percent.toFixed(1)}%)</title>
           </path>
         ))}

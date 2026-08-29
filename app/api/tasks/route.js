@@ -9,6 +9,9 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
 
+  // Guest (read-only viewer) sees the real task list.
+  if (user.role === 'guest') return NextResponse.json({ tasks: await getTasks(), role: 'guest' });
+
   if (user.role === 'admin') {
     const tasks = await getTasks();
     return NextResponse.json({ tasks, role: 'admin' });

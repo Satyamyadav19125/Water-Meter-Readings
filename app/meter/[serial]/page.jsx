@@ -1,11 +1,13 @@
 import { Suspense } from 'react';
+import { readingDate } from '@/lib/weekly';
 import Link from 'next/link';
 import { fetchSubmissions } from '@/lib/kobo';
 import { filterSubmissionsForUser } from '@/lib/filter';
 import { getSettings, getVerifiedIds } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { getField, parseReading } from '@/lib/fieldMap';
-import { detectRedFlags, groupBySerial } from '@/lib/redflags';
+import { groupBySerial } from '@/lib/redflags';
+import { detectFlagsScoped } from '@/lib/flagContext';
 import SubmissionList from '@/components/SubmissionList';
 import ExportButton from '@/components/ExportButton';
 
@@ -24,10 +26,10 @@ export default async function MeterPage({ params }) {
   const mine = groups[serial] || [];
   // Flags are admin-only. Surveyors see the meter's history without any
   // quality-review markers.
-  const flags = isAdmin ? detectRedFlags(submissions, { enabled: settings?.redFlags }) : {};
+  const flags = isAdmin ? await detectFlagsScoped(submissions, settings) : {};
 
   const sorted = [...mine].sort(
-    (a, b) => new Date(b._submission_time).getTime() - new Date(a._submission_time).getTime()
+    (a, b) => readingDate(b).getTime() - readingDate(a).getTime()
   );
 
   const village = sorted[0] ? getField(sorted[0], 'village') : null;
@@ -45,7 +47,7 @@ export default async function MeterPage({ params }) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M19 12H5M12 19l-7-7 7-7"/>
         </svg>
-        Back to Usage
+        Back to Water usage
       </Link>
 
       <div className="flex items-start justify-between gap-2 flex-wrap">
