@@ -129,12 +129,14 @@ export default function FilterBar() {
               {availableVillages.map((v) => <option key={v} value={v}>{v}</option>)}
             </select>
           </Field>
-          <Field label={`Farm ID (${farms.length})`}>
-            <select value={farm} onChange={(e) => update('farm', e.target.value)} className="filter-input">
-              <option value="">All farms</option>
-              {farms.map((f) => <option key={f} value={f}>{f}</option>)}
-            </select>
-          </Field>
+          {farms.length > 0 && (
+            <Field label={`Farm ID (${farms.length})`}>
+              <select value={farm} onChange={(e) => update('farm', e.target.value)} className="filter-input">
+                <option value="">All farms</option>
+                {farms.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </Field>
+          )}
           <Field label={`Meter ID (${availableMeters.length})`}>
             <select value={meter} onChange={(e) => update('meter', e.target.value)} className="filter-input">
               <option value="">All meters</option>

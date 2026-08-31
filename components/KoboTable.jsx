@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 // `mobile: false` columns are hidden on phones so the table fits the screen
 // without left-right scrolling; tap the row number (👁) to see everything.
 const COLUMNS = [
-  { key: 'validation', label: 'Validation', width: 110, mobile: false },
+  { key: 'id', label: 'Submission ID', width: 120, mobile: true },
   { key: 'start', label: 'start', width: 150, mobile: false },
   { key: 'end', label: 'end', width: 150, mobile: false },
   { key: 'date', label: 'Date', width: 100, mobile: true },
@@ -84,11 +84,7 @@ export default function KoboTable({ rows }) {
                     {safePage * pageSize + i + 1} 👁
                   </button>
                 </td>
-                <td className="px-2 md:px-3 py-2 hidden md:table-cell">
-                  {r.validation
-                    ? <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">{r.validation}</span>
-                    : <span className="text-slate-300">–</span>}
-                </td>
+                <td className="px-2 md:px-3 py-2 font-mono text-xs whitespace-nowrap">{r.id}</td>
                 <td className="px-2 md:px-3 py-2 text-xs text-slate-600 whitespace-nowrap hidden md:table-cell">{r.start}</td>
                 <td className="px-2 md:px-3 py-2 text-xs text-slate-600 whitespace-nowrap hidden md:table-cell">{r.end}</td>
                 <td className="px-2 md:px-3 py-2 whitespace-nowrap text-xs md:text-sm">{r.date}</td>

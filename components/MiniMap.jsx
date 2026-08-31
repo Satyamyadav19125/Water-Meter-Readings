@@ -1,34 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+// Leaflet is bundled (no CDN), so the mini-map loads even on blocked networks.
+import 'leaflet/dist/leaflet.css';
 
-// Tiny embedded Leaflet map with a pin for the pipe/reading, and (optionally) a
+// Tiny embedded Leaflet map with a pin for the meter/reading, and (optionally) a
 // second marker for the viewer's own GPS position — so "how far am I?" shows
-// WHERE you are standing, with a dashed line to the pipe, not just a number.
-// Loads Leaflet from the same CDN the main /map page already uses.
-const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-
+// WHERE you are standing, with a dashed line to the meter, not just a number.
+let _leafletPromise = null;
 function loadLeaflet() {
-  return new Promise((resolve, reject) => {
-    if (window.L) return resolve(window.L);
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link');
-      link.id = 'leaflet-css'; link.rel = 'stylesheet'; link.href = LEAFLET_CSS;
-      document.head.appendChild(link);
-    }
-    const existing = document.getElementById('leaflet-js');
-    if (existing) {
-      existing.addEventListener('load', () => resolve(window.L));
-      existing.addEventListener('error', reject);
-      return;
-    }
-    const s = document.createElement('script');
-    s.id = 'leaflet-js'; s.src = LEAFLET_JS;
-    s.onload = () => resolve(window.L);
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'));
+  if (window.L) return Promise.resolve(window.L);
+  if (!_leafletPromise) {
+    _leafletPromise = import('leaflet').then((mod) => {
+      const L = mod.default || mod;
+      window.L = L;
+      return L;
+    }).catch((e) => { _leafletPromise = null; throw e; });
+  }
+  return _leafletPromise;
 }
 
 export default function MiniMap({ lat, lng, label = '', me = null, route = null }) {

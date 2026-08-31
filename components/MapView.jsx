@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-
-const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-const LEAFLET_HEAT_JS = 'https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js';
+// Leaflet is bundled with the app (no external CDN), so the map always loads
+// even where unpkg / other CDNs are blocked or slow. The CSS ships too.
+import 'leaflet/dist/leaflet.css';
 
 const TILE_LAYERS = {
   // maxNativeZoom caps the deepest tile actually fetched; Leaflet UPSCALES past
@@ -32,27 +31,21 @@ function escapeHtml(s) {
 // map smooth with the whole dataset pinned.
 const PIN_COLORS = { red: '#dc2626', blue: '#2563eb', orange: '#f59e0b', grey: '#94a3b8' };
 
-function loadScript(id, src) {
-  return new Promise((resolve, reject) => {
-    const existing = document.getElementById(id);
-    if (existing) {
-      if (existing.dataset.loaded) return resolve();
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', reject);
-      return;
-    }
-    const script = document.createElement('script');
-    script.id = id; script.src = src; script.async = true;
-    script.onload = () => { script.dataset.loaded = '1'; resolve(); };
-    script.onerror = reject;
-    document.body.appendChild(script);
-  });
-}
-function loadCss(id, href) {
-  if (document.getElementById(id)) return;
-  const link = document.createElement('link');
-  link.id = id; link.rel = 'stylesheet'; link.href = href;
-  document.head.appendChild(link);
+// Load the bundled Leaflet once (client-only — Leaflet touches `window`, so it
+// can't be imported at the top level of a component that renders on the server).
+let _leafletPromise = null;
+function loadLeaflet() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'));
+  if (window.L) return Promise.resolve(window.L);
+  if (!_leafletPromise) {
+    _leafletPromise = import('leaflet').then(async (mod) => {
+      const L = mod.default || mod;
+      window.L = L;                 // leaflet.heat attaches to the global L
+      try { await import('leaflet.heat'); } catch { /* heat is optional */ }
+      return L;
+    }).catch((e) => { _leafletPromise = null; throw e; });
+  }
+  return _leafletPromise;
 }
 
 function popupHtml(p, { showFlagFilter, allowKoboLink }) {
@@ -106,21 +99,21 @@ export default function MapView({ points = [], showFlagFilter = true, allowKoboL
   const [viewMode, setViewMode] = useState('pins');   // pins | heat
   const [locating, setLocating] = useState(false);
   const [emptyFilter, setEmptyFilter] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   const flaggedCount = points.filter((p) => p.isFlagged).length;
   const cleanCount = points.length - flaggedCount;
   const dupCount = points.filter((p) => p.isDuplicate).length;
   const offCount = points.filter((p) => p.isOff).length;
 
-  // ---- Create the map ONCE. ----
+  // ---- Create the map ONCE (re-runs on Retry). ----
   useEffect(() => {
     let cancelled = false;
-    loadCss('leaflet-css', LEAFLET_CSS);
+    setLoadError(false);
     (async () => {
       try {
-        await loadScript('leaflet-js', LEAFLET_JS);
-        await loadScript('leaflet-heat-js', LEAFLET_HEAT_JS);
-        const L = window.L;
+        const L = await loadLeaflet();
         if (cancelled || !containerRef.current || !L || mapRef.current) return;
         const map = L.map(containerRef.current, { zoomControl: true, preferCanvas: true }).setView([30.9, 75.8], 9);
         mapRef.current = map;
@@ -130,14 +123,27 @@ export default function MapView({ points = [], showFlagFilter = true, allowKoboL
         const conf = TILE_LAYERS[layer];
         tileLayerRef.current = L.tileLayer(conf.url, { maxZoom: 19, maxNativeZoom: conf.maxNativeZoom || 19, attribution: conf.attribution }).addTo(map);
         attachStreetFallback(L, map, tileLayerRef);
-        setTimeout(() => { try { map.invalidateSize(); } catch {} }, 200);
-        setTimeout(() => { try { map.invalidateSize(); } catch {} }, 900);
+        // Repeated invalidateSize so the map paints correctly even if the tab
+        // was hidden or the container was resized while loading.
+        [200, 600, 1200].forEach((ms) => setTimeout(() => { try { map.invalidateSize(); } catch {} }, ms));
+        if (typeof ResizeObserver !== 'undefined') {
+          const ro = new ResizeObserver(() => { try { map.invalidateSize(); } catch {} });
+          ro.observe(containerRef.current);
+          map._ro = ro;
+        }
         if (!cancelled) setReady(true);
-      } catch (e) { console.error('Leaflet load failed', e); }
+      } catch (e) {
+        console.error('Leaflet failed to load', e);
+        if (!cancelled) setLoadError(true);
+      }
     })();
-    return () => { cancelled = true; if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } setReady(false); };
+    return () => {
+      cancelled = true;
+      if (mapRef.current) { try { mapRef.current._ro?.disconnect(); } catch {} mapRef.current.remove(); mapRef.current = null; }
+      setReady(false);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retry]);
 
   // ---- Rebuild markers whenever the data / colouring changes. ----
   useEffect(() => {
@@ -289,6 +295,15 @@ export default function MapView({ points = [], showFlagFilter = true, allowKoboL
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[440] bg-white/90 rounded-lg shadow px-4 py-2 text-sm text-slate-600 text-center pointer-events-none">
           No pins match this filter{filterMode === 'flagged' ? ' — there are no red-flagged readings here.' : filterMode === 'off' ? ' — no turned-off farms/meters have GPS here.' : '.'}
         </div>
+      )}
+      {loadError && (
+        <div className="absolute inset-0 z-[460] bg-white/95 flex flex-col items-center justify-center gap-3 text-center p-4">
+          <div className="text-sm text-slate-700">The map couldn't start. Check your internet connection and try again.</div>
+          <button onClick={() => setRetry((n) => n + 1)} className="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700">↻ Retry</button>
+        </div>
+      )}
+      {!ready && !loadError && (
+        <div className="absolute inset-0 z-[440] flex items-center justify-center text-sm text-slate-400 pointer-events-none">Loading map…</div>
       )}
       <div ref={containerRef} style={{ height: '70vh', minHeight: 420, width: '100%' }} />
     </div>

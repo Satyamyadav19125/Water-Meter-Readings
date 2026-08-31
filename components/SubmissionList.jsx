@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getField } from '@/lib/fieldMap';
 import { readingTime } from '@/lib/redflags';
@@ -253,8 +253,7 @@ function DuplicateCompare({ current, others, canVerify }) {
   const router = useRouter();
   const [busy, setBusy] = useState('');
   const [lb, setLb] = useState(null);
-  const [editId, setEditId] = useState('');   // which reading's value is being edited
-  const [editVal, setEditVal] = useState('');
+  const [editId, setEditId] = useState('');   // which reading's full form is open
   // Show readings EARLIEST-FIRST (by the field time), so the first reading of the
   // day is column 1. The opened card is tagged "(this one)".
   const columns = [current, ...others]
@@ -305,10 +304,7 @@ function DuplicateCompare({ current, others, canVerify }) {
     if (note === null) return;
     post({ submissionId: sub._id, field: 'dead', oldValue: val(sub, 'reading'), note });
   }
-  function saveEdit(sub) {
-    if (String(editVal).trim() === '') { alert('Enter the corrected reading.'); return; }
-    post({ submissionId: sub._id, field: 'reading', oldValue: val(sub, 'reading'), newValue: String(editVal).trim(), note: 'Corrected from duplicate review' });
-  }
+  const editSub = editId ? columns.find((c) => String(c._id) === String(editId)) : null;
 
   return (
     <div className="space-y-2">
@@ -350,19 +346,10 @@ function DuplicateCompare({ current, others, canVerify }) {
                   <td key={sub._id} className="px-2 py-2">
                     {isDeadSub(sub) ? (
                       <span className="text-[11px] text-slate-500">🗑️ deleted</span>
-                    ) : editId === String(sub._id) ? (
-                      <div className="flex flex-col gap-1">
-                        <input type="number" value={editVal} onChange={(e) => setEditVal(e.target.value)}
-                          className="w-24 px-2 py-1 rounded border border-amber-400 text-xs" placeholder="new reading" />
-                        <div className="flex gap-1">
-                          <button onClick={() => saveEdit(sub)} disabled={busy === sub._id} className="text-[11px] px-2 py-0.5 rounded bg-amber-600 text-white disabled:opacity-50">Save</button>
-                          <button onClick={() => setEditId('')} className="text-[11px] px-2 py-0.5 rounded border border-slate-300">Cancel</button>
-                        </div>
-                      </div>
                     ) : (
                       <div className="flex flex-col gap-1">
-                        <button onClick={() => { setEditId(String(sub._id)); setEditVal(String(val(sub, 'reading'))); }} disabled={!!busy}
-                          className="text-[11px] px-2 py-0.5 rounded border border-amber-400 text-amber-800 hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap">✎ Edit</button>
+                        <button onClick={() => setEditId(editId === String(sub._id) ? '' : String(sub._id))} disabled={!!busy}
+                          className={`text-[11px] px-2 py-0.5 rounded border whitespace-nowrap disabled:opacity-50 ${editId === String(sub._id) ? 'bg-sky-600 text-white border-sky-600' : 'border-sky-400 text-sky-700 hover:bg-sky-50'}`}>✎ Edit form</button>
                         <button onClick={() => verify(sub)} disabled={!!busy}
                           className="text-[11px] px-2 py-0.5 rounded border border-emerald-400 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap">✓ Correct</button>
                         <button onClick={() => markDead(sub)} disabled={!!busy}
@@ -376,6 +363,15 @@ function DuplicateCompare({ current, others, canVerify }) {
           </tbody>
         </table>
       </div>
+
+      {/* Full-form editor for whichever reading's "✎ Edit form" is active —
+          so ANY of the same-day readings can be fully edited, not just one. */}
+      {editSub && (
+        <div className="border border-sky-200 rounded-lg p-1 bg-sky-50/40">
+          <div className="text-[11px] text-slate-600 px-2 pt-1">Editing <b>Reading {columns.findIndex((c) => String(c._id) === String(editSub._id)) + 1}</b> <span className="font-mono text-slate-400">#{String(editSub._id).slice(-5)}</span></div>
+          <FullFormEditor key={editSub._id} submission={editSub} defaultOpen onClose={() => setEditId('')} />
+        </div>
+      )}
 
       {/* Photos side-by-side — the whole point of a duplicate review is seeing
           which reading's PHOTO is wrong/missing, so show every form's pictures
@@ -461,7 +457,7 @@ function toDateInput(v) {
   return m ? m[1] : '';
 }
 
-function FullFormEditor({ submission }) {
+function FullFormEditor({ submission, defaultOpen = false, onClose }) {
   const existing = submission._correction && submission._correction.field === 'fields'
     ? (submission._correction.fields || {}) : {};
   const [open, setOpen] = useState(false);
@@ -475,6 +471,9 @@ function FullFormEditor({ submission }) {
   // so the Pipe list can narrow to the chosen farm.
   const [master, setMaster] = useState(null);
   const router = useRouter();
+
+  // When embedded in the duplicate-comparison "Edit", open straight away.
+  useEffect(() => { if (defaultOpen) begin(); /* eslint-disable-next-line */ }, []);
 
   function currentVal(path, logical) {
     if (path in existing) return existing[path];
@@ -623,7 +622,7 @@ function FullFormEditor({ submission }) {
       {err && <div className="text-xs text-red-600">{err}</div>}
       <div className="flex gap-2">
         <button onClick={save} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 text-white font-medium hover:bg-sky-700 disabled:opacity-50">{busy ? 'Saving…' : 'Save edits'}</button>
-        <button onClick={() => setOpen(false)} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600">Cancel</button>
+        <button onClick={() => { setOpen(false); onClose && onClose(); }} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600">Cancel</button>
       </div>
     </div>
   );
@@ -805,19 +804,10 @@ function SubmissionPanel({ label, submission, highlight }) {
         {getField(submission, 'farm') && <Fact k="Farm ID" v={getField(submission, 'farm')} />}
         <Fact k="Meter ID" v={getField(submission, 'serial')} mono />
       </div>
-      <dl className="space-y-1 mb-3">
-        {Object.entries(submission)
-          .filter(([k]) => !k.startsWith('_') && !k.includes('/uuid') && !k.includes('/instanceID'))
-          // Don't repeat village / farm / pipe ID — they're already on the card.
-          .filter(([k]) => !DETAIL_SKIP_SEGMENTS.has(k.split('/').pop().toLowerCase()))
-          .slice(0, 10)
-          .map(([k, v]) => (
-            <div key={k} className="grid grid-cols-[110px_1fr] gap-2 text-xs">
-              <dt className="text-slate-500 truncate">{prettyKey(k)}</dt>
-              <dd className="text-slate-900 break-all">{renderVal(v)}</dd>
-            </div>
-          ))}
-      </dl>
+      {/* The raw Kobo field dump used to be shown here too, which repeated Date /
+          Reading / Surveyor. The Key-facts block above, the photo(s) and the
+          location map below already cover everything — the full raw record is
+          in the admin Kobo View tab — so it's no longer duplicated here. */}
       {(() => {
         const loc = parseSubLoc(submission);
         if (!loc) return null;

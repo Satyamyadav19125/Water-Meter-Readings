@@ -158,18 +158,20 @@ export default function MeterStatusTable({ week = 'this', date = '' }) {
                         : 'no readings yet'}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  {/* Take-reading button: fixed slot so the status chips below all
+                      line up in one column whether or not a button is present. */}
+                  <div className="shrink-0 w-28 flex justify-end">
                     {takeUrl && m.status !== 'done' && (
                       <a href={takeUrl} target="_blank" rel="noreferrer"
                         title="Open the Kobo form with village, meter, your name and today's date already filled in"
-                        className="text-[11px] px-2 py-1 rounded-full bg-field-600 text-white font-medium hover:bg-field-700 whitespace-nowrap">
+                        className="text-[11px] px-2.5 py-1 rounded-full bg-field-600 text-white font-medium hover:bg-field-700 whitespace-nowrap">
                         ➕ Take reading
                       </a>
                     )}
-                    <div className="text-right">
-                      <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border font-medium ${st.chip}`}>{st.label}</span>
-                      <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisPeriod, target)}/{target}</div>
-                    </div>
+                  </div>
+                  <div className="text-right shrink-0 w-24">
+                    <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border font-medium ${st.chip}`}>{st.label}</span>
+                    <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisPeriod, target)}/{target}</div>
                   </div>
                 </li>
               );
