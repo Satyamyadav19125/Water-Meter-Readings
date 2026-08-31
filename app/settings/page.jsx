@@ -15,6 +15,7 @@ const FLAG_LABELS = {
   future_date: 'Future-dated reading',
   out_of_sequence: 'Reading date earlier than the previous one',
   location_far: 'GPS far outside the whole project area (swapped / mistyped lat-long)',
+  geofence: "Reading taken outside a meter's set location radius (needs Meter locations sheet)",
   // Opt-in extras (off by default)
   missing_photo: 'Missing meter photo on a submission',
   invalid_meter_id: 'Meter ID not in the expected WM###### format',
@@ -34,6 +35,7 @@ const SECTIONS = [
   { id: 'project',  icon: '🌱', label: 'Project info',    hint: 'Name & description' },
   { id: 'reading',  icon: '🎯', label: 'Reading targets', hint: 'Count & period' },
   { id: 'meter',    icon: '📏', label: 'Meter parameters', hint: 'GPS & flag window' },
+  { id: 'geofence', icon: '📍', label: 'Meter locations', hint: 'Geofence & Sheet' },
   { id: 'registry', icon: '🎚️', label: 'Farms & meters',  hint: 'Turn on/off' },
   { id: 'security', icon: '🔐', label: 'Admin passwords', hint: 'Change admin login' },
   { id: 'guest',    icon: '👁️', label: 'Guest & landing', hint: 'Viewer link & landing pages' },
@@ -43,7 +45,7 @@ const SECTIONS = [
   { id: 'storage',  icon: '🗄️', label: 'Data & storage', hint: 'DB usage' },
 ];
 
-const METER_DEFAULTS = { maxLocationKm: 100, flagWindowDays: '', hugeJumpThreshold: 100000 };
+const METER_DEFAULTS = { maxLocationKm: 100, flagWindowDays: '', hugeJumpThreshold: 100000, geofence: { enabled: false, radiusMeters: 50, sheetUrl: '' } };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState(null);
@@ -148,6 +150,7 @@ export default function SettingsPage() {
   function updateContact(k, v) { setS({ ...settings, contact: { ...settings.contact, [k]: v } }); }
   function updateFlag(k, v) { setS({ ...settings, redFlags: { ...settings.redFlags, [k]: v } }); }
   function updateMeter(k, v) { setS({ ...settings, meter: { ...(settings.meter || {}), [k]: v } }); }
+  function updateGeofence(k, v) { setS({ ...settings, meter: { ...(settings.meter || {}), geofence: { ...((settings.meter || {}).geofence || {}), [k]: v } } }); }
   function updateSecurity(list) { setS({ ...settings, security: { ...(settings.security || {}), adminPasswords: list } }); }
   function updateProject(k, v) { setS({ ...settings, project: { ...settings.project, [k]: v } }); }
   function updateGuest(k, v) { setS({ ...settings, guest: { ...(settings.guest || {}), [k]: v } }); }
@@ -322,6 +325,12 @@ export default function SettingsPage() {
           </div>
           <p className="text-[11px] text-slate-500">A rise bigger than this between two readings raises the <i>Huge jump</i> flag (usually an extra digit typed by mistake). Keep it well above normal usage so genuine consumption never trips it.</p>
         </div>
+      </Section>
+
+      {/* Meter locations — geofence radius + Google Sheet of reference points */}
+      <Section id="geofence" title="📍 Meter locations & geofence"
+        subtitle="Set a fixed reference GPS per meter from a Google Sheet. A reading taken farther than the radius from its meter's set location gets flagged.">
+        <GeofencePanel settings={settings} setSettings={setS} updateGeofence={updateGeofence} />
       </Section>
 
       {/* Farms & meters on/off registry */}
@@ -676,7 +685,84 @@ function PhotoQuality({ settings, setSettings }) {
   );
 }
 
+// ---- Geofence panel: radius + toggle + Google Sheet sync of meter locations ----
+function GeofencePanel({ settings, updateGeofence }) {
+  const geo = (settings.meter || {}).geofence || {};
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    fetch('/api/meter-locations').then((r) => r.json()).then(setStatus).catch(() => {});
+  }, []);
+
+  async function syncNow() {
+    setBusy(true); setMsg('');
+    try {
+      // Save current settings first so the sheet URL is persisted, then pull.
+      await fetch('/api/settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      const res = await fetch('/api/meter-locations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: geo.sheetUrl }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Sync failed');
+      setMsg(`✓ Loaded ${d.parsed} meter locations${d.skipped ? ` · skipped ${d.skipped} unreadable row(s)` : ''}.`);
+      setStatus({ count: d.parsed, syncedAt: new Date().toISOString(), sample: d.sample || [] });
+    } catch (e) { setMsg(`⚠️ ${e.message}`); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="space-y-3">
+      <Toggle label="Flag readings taken outside a meter's set location"
+        checked={geo.enabled === true} onChange={(v) => updateGeofence('enabled', v)} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Radius (metres)">
+          <input type="number" min="1" value={geo.radiusMeters ?? 50}
+            onChange={(e) => updateGeofence('radiusMeters', e.target.value === '' ? '' : Number(e.target.value))} className="input" />
+        </Field>
+      </div>
+
+      <div className="border-t border-slate-100 pt-3 space-y-2">
+        <Field label="Google Sheet URL (reference locations)">
+          <input value={geo.sheetUrl || ''} onChange={(e) => updateGeofence('sheetUrl', e.target.value)}
+            placeholder="https://docs.google.com/spreadsheets/d/…" className="input" />
+        </Field>
+        <button onClick={syncNow} disabled={busy || !geo.sheetUrl}
+          className="px-3 py-2 text-sm rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 disabled:opacity-50">
+          {busy ? 'Syncing…' : '⟳ Sync locations from sheet now'}
+        </button>
+        {msg && <div className="text-xs text-slate-700">{msg}</div>}
+        {status && (
+          <div className="text-xs text-slate-500">
+            {status.count > 0
+              ? <>Currently {status.count} meter location{status.count === 1 ? '' : 's'} loaded{status.syncedAt ? ` · synced ${new Date(status.syncedAt).toLocaleString()}` : ''}.</>
+              : 'No meter locations loaded yet.'}
+            {Array.isArray(status.sample) && status.sample.length > 0 && (
+              <div className="mt-1 font-mono">e.g. {status.sample.map(([k, v]) => `${k}→${v.lat?.toFixed(5)},${v.lng?.toFixed(5)}`).slice(0, 3).join('  ')}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-sky-50 border border-sky-100 rounded-lg p-3 text-xs text-sky-900 space-y-1">
+        <div className="font-semibold">📄 How to set up the sheet</div>
+        <p>Two columns, with a header row:</p>
+        <p><b>Column A</b> = Meter ID (exactly as in Kobo, e.g. <span className="font-mono">WM100240329675</span>). <b>Column B</b> = location as <span className="font-mono">lat, lng</span>.</p>
+        <p>Location can be decimal (<span className="font-mono">30.4219, 76.3615</span>) or degrees (<span className="font-mono">30°25'19"N 76°21'41"E</span>) — both are read automatically.</p>
+        <p>Share the sheet as <b>Anyone with the link – Viewer</b> (or File → Share → Publish to web), then paste the link above and hit Sync. Requires the <b>🚩 Red flag rules</b> geofence toggle to be on.</p>
+      </div>
+    </div>
+  );
+}
+
 // ---- Registry panel: turn farms and meters on/off ----
+// Two modes: if the form has real farms, show a farm→meter tree; if there are
+// no farms at all, show a flat searchable list of meters with per-meter on/off.
 function RegistryPanel() {
   const [master, setMaster] = useState(null);      // { villages, pipes:[{serial,farm,village}] }
   const [offFarms, setOffFarms] = useState(new Set());
@@ -697,18 +783,19 @@ function RegistryPanel() {
       });
   }, []);
 
-  // Group the master meter list by farm for a compact on/off tree.
+  const allMeters = master?.pipes || [];
+  const hasRealFarms = allMeters.some((p) => p.farm && String(p.farm).trim());
+
+  // Group the master meter list by farm for the tree view.
   const farms = {};
-  if (master?.pipes) {
-    for (const p of master.pipes) {
-      const farm = p.farm || '(no farm)';
-      if (!farms[farm]) farms[farm] = { village: p.village, meters: [] };
-      farms[farm].meters.push(p.serial);
-    }
+  for (const p of allMeters) {
+    const farm = (p.farm && String(p.farm).trim()) || '(no farm)';
+    if (!farms[farm]) farms[farm] = { village: p.village, meters: [] };
+    farms[farm].meters.push(p.serial);
   }
-  // Live counts of how many farms and meters are active vs switched off.
+  // Live counts — recomputed on every toggle, so the summary updates instantly.
   const totalFarms = Object.keys(farms).length;
-  const totalMeters = master?.pipes?.length || 0;
+  const totalMeters = allMeters.length;
   const meterIsOff = (serial, farm) => offMeters.has(serial) || offFarms.has(farm);
   let offMeterCount = 0;
   for (const [farm, info] of Object.entries(farms)) {
@@ -717,18 +804,6 @@ function RegistryPanel() {
   const offFarmCount = Object.keys(farms).filter((f) => offFarms.has(f)).length;
   const activeFarms = totalFarms - offFarmCount;
   const activeMeters = totalMeters - offMeterCount;
-
-  // Search accepts several IDs separated by commas. A farm matches if its own ID
-  // matches OR any of its meters match.
-  const terms = q.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
-  const matches = (farm, meters) => {
-    if (terms.length === 0) return true;
-    return terms.some((t) => farm.toLowerCase().includes(t) || meters.some((p) => p.toLowerCase().includes(t)));
-  };
-  const matchesView = (farm) => view === 'all' || (view === 'active' ? !offFarms.has(farm) : offFarms.has(farm));
-  const farmList = Object.entries(farms)
-    .filter(([farm, info]) => matches(farm, info.meters) && matchesView(farm))
-    .sort((a, b) => a[0].localeCompare(b[0]));
 
   function toggleSet(setter, set, key) {
     const next = new Set(set);
@@ -743,37 +818,111 @@ function RegistryPanel() {
         body: JSON.stringify({ farms: [...offFarms], pipes: [...offMeters] }),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Save failed');
-      setMsg('✓ Saved. Disabled farms/meters are now hidden from surveyors.');
+      setMsg('✓ Saved. Disabled farms/meters are now hidden from surveyors, the map, targets and red flags.');
     } catch (e) { setMsg(`⚠️ ${e.message}`); }
     setBusy(false);
   }
 
   if (!loaded) return <div className="text-sm text-slate-500">Loading farms & meters…</div>;
-  if (!master?.pipes?.length) return <div className="text-sm text-slate-500">No meter list available from the Kobo form yet. This reads the form&#39;s village→farm→meter choice lists; if your form uses a CSV media file for meters instead of choice lists, this list can&#39;t be built.</div>;
+  if (!allMeters.length) return <div className="text-sm text-slate-500">No meter list available from the Kobo form yet. This reads the form&#39;s village→(farm)→meter choice lists; if your form stores meters in a CSV media file instead of choice lists, this list can&#39;t be built.</div>;
+
+  // Search accepts several IDs separated by commas (case-insensitive, partial).
+  const terms = q.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const meterMatches = (serial, farm) => terms.length === 0
+    || terms.some((t) => serial.toLowerCase().includes(t) || (farm && farm.toLowerCase().includes(t)));
+
+  // Summary tiles — hide the farm tiles entirely when the form has no farms.
+  const summary = (
+    <div className={`grid grid-cols-2 ${hasRealFarms ? 'sm:grid-cols-4' : ''} gap-2`}>
+      {hasRealFarms && <CountTile label="Active farms" value={activeFarms} sub={`of ${totalFarms}`} tone="emerald" />}
+      <CountTile label="Active meters" value={activeMeters} sub={`of ${totalMeters}`} tone="emerald" />
+      {hasRealFarms && <CountTile label="Farms off" value={offFarmCount} sub={offFarmCount ? 'hidden from surveyors' : 'none'} tone="slate" />}
+      <CountTile label="Meters off" value={offMeterCount} sub={offMeterCount ? (hasRealFarms ? 'incl. whole-farm off' : 'hidden from surveyors') : 'none'} tone="slate" />
+    </div>
+  );
+
+  const controls = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={hasRealFarms ? 'Search farm or meter IDs — separate with commas' : 'Search meter IDs — separate with commas'}
+        className="input flex-1 min-w-[160px]" />
+      <div className="flex bg-slate-100 rounded-lg p-0.5 text-xs">
+        {[['all', 'All'], ['active', 'Active'], ['off', 'Off']].map(([k, lbl]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={`px-2.5 py-1.5 rounded-md whitespace-nowrap transition ${view === k ? 'bg-brand-600 text-white font-medium' : 'text-slate-600 hover:bg-white'}`}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const saveBar = (
+    <>
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={busy}
+          className="px-3 py-2 text-sm rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 disabled:opacity-50">
+          {busy ? 'Saving…' : 'Save farm & meter settings'}
+        </button>
+        {msg && <span className="text-xs text-slate-700">{msg}</span>}
+      </div>
+      <p className="text-[11px] text-slate-500">The counts above update the moment you tap a toggle. Disabled units vanish from surveyors and the map filter, are excluded from red flags, and don't count toward missed readings. Remember to <b>Save</b>.</p>
+    </>
+  );
+
+  // ---- FLAT MODE: no farms in the form → one on/off per meter ----
+  if (!hasRealFarms) {
+    const list = allMeters
+      .map((p) => p.serial)
+      .filter((serial) => meterMatches(serial, ''))
+      .filter((serial) => view === 'all' || (view === 'active' ? !offMeters.has(serial) : offMeters.has(serial)))
+      .sort((a, b) => String(a).localeCompare(String(b)));
+    return (
+      <div className="space-y-3">
+        {summary}
+        {controls}
+        <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[26rem] overflow-y-auto">
+          {list.length === 0 && (
+            <div className="p-4 text-center text-xs text-slate-400">
+              {view === 'off' ? 'No meters are switched off.' : view === 'active' ? 'No active meters match.' : 'No meters match your search.'}
+            </div>
+          )}
+          {list.map((serial) => {
+            const meterOff = offMeters.has(serial);
+            return (
+              <div key={serial} className={`p-2.5 flex items-center justify-between gap-2 ${meterOff ? 'bg-slate-50 opacity-70' : ''}`}>
+                <div className="font-mono text-xs font-semibold truncate">{serial}</div>
+                <button onClick={() => toggleSet(setOffMeters, offMeters, serial)}
+                  className={`shrink-0 text-xs px-2.5 py-1 rounded-full border ${meterOff ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-emerald-50 text-emerald-700 border-emerald-300'}`}>
+                  {meterOff ? '○ Off' : '● On'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {terms.length > 0 && list.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap bg-slate-50 border border-slate-200 rounded-lg p-2">
+            <span className="text-xs text-slate-600">{list.length} meter(s) matched —</span>
+            <button onClick={() => { const n = new Set(offMeters); list.forEach((s) => n.add(s)); setOffMeters(n); }}
+              className="text-xs px-2.5 py-1 rounded border border-slate-400 text-slate-700 hover:bg-white">Turn all OFF</button>
+            <button onClick={() => { const n = new Set(offMeters); list.forEach((s) => n.delete(s)); setOffMeters(n); }}
+              className="text-xs px-2.5 py-1 rounded border border-emerald-400 text-emerald-700 hover:bg-white">Turn all ON</button>
+          </div>
+        )}
+        {saveBar}
+      </div>
+    );
+  }
+
+  // ---- TREE MODE: form has farms → farm on/off + per-meter chips ----
+  const matchesView = (farm) => view === 'all' || (view === 'active' ? !offFarms.has(farm) : offFarms.has(farm));
+  const farmList = Object.entries(farms)
+    .filter(([farm, info]) => (terms.length === 0 || info.meters.some((m) => meterMatches(m, farm))) && matchesView(farm))
+    .sort((a, b) => a[0].localeCompare(b[0]));
 
   return (
     <div className="space-y-3">
-      {/* Live active / off summary — how many farms and meters are on the map */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <CountTile label="Active farms" value={activeFarms} sub={`of ${totalFarms}`} tone="emerald" />
-        <CountTile label="Active meters" value={activeMeters} sub={`of ${totalMeters}`} tone="emerald" />
-        <CountTile label="Farms off" value={offFarmCount} sub={offFarmCount ? 'hidden from surveyors' : 'none'} tone="slate" />
-        <CountTile label="Meters off" value={offMeterCount} sub={offMeterCount ? 'incl. whole-farm off' : 'none'} tone="slate" />
-      </div>
-
-      <div className="flex items-center gap-2 flex-wrap">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search farm or meter IDs — separate with commas"
-          className="input flex-1 min-w-[160px]" />
-        <div className="flex bg-slate-100 rounded-lg p-0.5 text-xs">
-          {[['all', 'All'], ['active', 'Active'], ['off', 'Off']].map(([k, lbl]) => (
-            <button key={k} onClick={() => setView(k)}
-              className={`px-2.5 py-1.5 rounded-md whitespace-nowrap transition ${view === k ? 'bg-brand-600 text-white font-medium' : 'text-slate-600 hover:bg-white'}`}>
-              {lbl}
-            </button>
-          ))}
-        </div>
-      </div>
-
+      {summary}
+      {controls}
       <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[26rem] overflow-y-auto">
         {farmList.length === 0 && (
           <div className="p-4 text-center text-xs text-slate-400">
@@ -781,22 +930,25 @@ function RegistryPanel() {
           </div>
         )}
         {farmList.map(([farm, info]) => {
-          const farmOff = offFarms.has(farm);
+          const noFarm = farm === '(no farm)';
+          const farmOff = !noFarm && offFarms.has(farm);
           return (
             <div key={farm} className={`p-2.5 ${farmOff ? 'bg-slate-50 opacity-70' : ''}`}>
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="font-mono text-xs font-semibold truncate">{farm}</div>
-                  <div className="text-[11px] text-slate-500">{info.village} · {info.meters.length} meter(s)</div>
+                  <div className="font-mono text-xs font-semibold truncate">{noFarm ? 'Meters with no farm' : farm}</div>
+                  <div className="text-[11px] text-slate-500">{info.village ? `${info.village} · ` : ''}{info.meters.length} meter(s)</div>
                 </div>
-                <button onClick={() => toggleSet(setOffFarms, offFarms, farm)}
-                  className={`shrink-0 text-xs px-2.5 py-1 rounded-full border ${farmOff ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-emerald-50 text-emerald-700 border-emerald-300'}`}>
-                  {farmOff ? '○ Off' : '● On'}
-                </button>
+                {!noFarm && (
+                  <button onClick={() => toggleSet(setOffFarms, offFarms, farm)}
+                    className={`shrink-0 text-xs px-2.5 py-1 rounded-full border ${farmOff ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-emerald-50 text-emerald-700 border-emerald-300'}`}>
+                    {farmOff ? '○ Off' : '● On'}
+                  </button>
+                )}
               </div>
               {!farmOff && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {info.meters.map((serial) => {
+                  {info.meters.filter((m) => meterMatches(m, farm)).map((serial) => {
                     const meterOff = offMeters.has(serial);
                     return (
                       <button key={serial} onClick={() => toggleSet(setOffMeters, offMeters, serial)}
@@ -811,25 +963,7 @@ function RegistryPanel() {
           );
         })}
       </div>
-
-      {terms.length > 0 && farmList.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap bg-slate-50 border border-slate-200 rounded-lg p-2">
-          <span className="text-xs text-slate-600">{farmList.length} farm(s) matched —</span>
-          <button onClick={() => { const n = new Set(offFarms); farmList.forEach(([f]) => n.add(f)); setOffFarms(n); }}
-            className="text-xs px-2.5 py-1 rounded border border-slate-400 text-slate-700 hover:bg-white">Turn all OFF</button>
-          <button onClick={() => { const n = new Set(offFarms); farmList.forEach(([f]) => n.delete(f)); setOffFarms(n); }}
-            className="text-xs px-2.5 py-1 rounded border border-emerald-400 text-emerald-700 hover:bg-white">Turn all ON</button>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        <button onClick={save} disabled={busy}
-          className="px-3 py-2 text-sm rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 disabled:opacity-50">
-          {busy ? 'Saving…' : 'Save farm & meter settings'}
-        </button>
-        {msg && <span className="text-xs text-slate-700">{msg}</span>}
-      </div>
-      <p className="text-[11px] text-slate-500">Search several at once by separating IDs with commas, then use <b>Turn all OFF/ON</b>. Tap a farm's <b>On/Off</b> to disable the whole plot, or tap individual meter codes to disable just those. Disabled units vanish from surveyors, are excluded from red flags, and don't count toward missed readings.</p>
+      {saveBar}
     </div>
   );
 }

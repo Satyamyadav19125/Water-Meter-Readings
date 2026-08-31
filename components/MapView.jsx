@@ -158,9 +158,11 @@ export default function MapView({ points = [], showFlagFilter = true, allowKoboL
         bubblingMouseEvents: false,
       });
       // Tap a pin → full details popup (works on phone thanks to the renderer
-      // tap tolerance above).
+      // tap tolerance above). The explicit click handler guarantees the popup
+      // opens even for grey (turned-off) pins.
       m.bindPopup(popupHtml(p, { showFlagFilter, allowKoboLink }));
-      built.push({ marker: m, isFlagged: !!p.isFlagged, lat: p.lat, lng: p.lng, point: p });
+      m.on('click', () => { try { m.openPopup(); } catch {} });
+      built.push({ marker: m, isFlagged: !!p.isFlagged, isOff: !!p.isOff, lat: p.lat, lng: p.lng, point: p });
     }
     map._meterMarkers = built;
     applyView(map);
@@ -190,6 +192,11 @@ export default function MapView({ points = [], showFlagFilter = true, allowKoboL
     if (layerGroupRef.current) { map.removeLayer(layerGroupRef.current); layerGroupRef.current = null; }
 
     const shownItems = all.filter(matchesFilter);
+    // Draw order = priority: normal pins first, then turned-off (grey), then
+    // flagged (red) on top — so when pins overlap, the ones you most need to
+    // tap (off / flagged) sit above the others and stay clickable.
+    const priority = (i) => (i.isFlagged ? 2 : i.isOff ? 1 : 0);
+    shownItems.sort((a, b) => priority(a) - priority(b));
 
     if (viewMode === 'pins') {
       // Every pin, drawn directly (no clustering).

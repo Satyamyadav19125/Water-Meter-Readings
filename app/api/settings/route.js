@@ -61,7 +61,10 @@ export async function PUT(request) {
     redFlags: { ...DEFAULT_SETTINGS.redFlags, ...(body.redFlags || {}) },
     project: { ...DEFAULT_SETTINGS.project, ...(body.project || {}) },
     forms: Array.isArray(body.forms) ? body.forms : [],
-    meter: { ...DEFAULT_SETTINGS.meter, ...(existing.meter || {}), ...(body.meter || {}) },
+    meter: {
+      ...DEFAULT_SETTINGS.meter, ...(existing.meter || {}), ...(body.meter || {}),
+      geofence: { ...DEFAULT_SETTINGS.meter.geofence, ...((existing.meter || {}).geofence || {}), ...((body.meter || {}).geofence || {}) },
+    },
     security: { ...DEFAULT_SETTINGS.security, ...(existing.security || {}), ...(body.security || {}) },
     reading: { ...DEFAULT_SETTINGS.reading, ...(existing.reading || {}), ...(body.reading || {}) },
     guest: {

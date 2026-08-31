@@ -3,8 +3,15 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getField } from '@/lib/fieldMap';
+import { readingTime } from '@/lib/redflags';
 import Lightbox from '@/components/Lightbox';
 import MiniMap from '@/components/MiniMap';
+
+// Kobo time "16:00:00.000+05:30" -> "16:00" for display; blank stays "—".
+function fmtTime(v) {
+  const m = /(\d{1,2}):(\d{2})/.exec(String(v || ''));
+  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : '';
+}
 
 // Parse a Kobo location value ("lat lng alt acc" string, or _geolocation array)
 // into { lat, lng } for the mini-map. Returns null when there's no usable GPS.
@@ -233,9 +240,10 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
   );
 }
 
-// Side-by-side comparison of two submissions (e.g. a duplicate pair), with the
-// differing fields highlighted, so the admin can see WHY one is wrong. Also
-// lets the admin pick which of the two is the mistake and mark it dead.
+// Side-by-side comparison of same-day readings, differences highlighted, so the
+// admin can see WHY one is wrong. Each reading can be independently corrected,
+// confirmed correct, or marked as a mistake — because two reads on the same day
+// at different times can BOTH be legitimate.
 const COMPARE_FIELDS = [
   ['date', 'Date'], ['startTime', 'Start'], ['endTime', 'End'], ['surveyor', 'Surveyor'],
   ['village', 'Village'], ['farm', 'Farm ID'], ['serial', 'Meter ID'],
@@ -245,32 +253,69 @@ function DuplicateCompare({ current, others, canVerify }) {
   const router = useRouter();
   const [busy, setBusy] = useState('');
   const [lb, setLb] = useState(null);
-  const columns = [current, ...others]; // N-way: this reading + every same-day partner
+  const [editId, setEditId] = useState('');   // which reading's value is being edited
+  const [editVal, setEditVal] = useState('');
+  // Show readings EARLIEST-FIRST (by the field time), so the first reading of the
+  // day is column 1. The opened card is tagged "(this one)".
+  const columns = [current, ...others]
+    .slice()
+    .sort((a, b) => readingTime(a) - readingTime(b));
   const val = (sub, key) => {
     if (key === 'reading') return getField(sub, 'endReading') ?? getField(sub, 'reading') ?? '';
     return getField(sub, key) ?? '';
   };
+  const dispVal = (sub, key) => {
+    const raw = val(sub, key);
+    if (key === 'startTime' || key === 'endTime') return fmtTime(raw);
+    return String(raw);
+  };
   const isDeadSub = (sub) => sub._correction && sub._correction.field === 'dead';
   const isCorrectedSub = (sub) => sub._correction && sub._correction.field !== 'dead';
-  const nameOf = (i) => (i === 0 ? 'This one' : `Other ${i}`);
-  async function markDead(sub) {
-    // Ask for a reason so the deleted reading records WHY. Cancel aborts.
-    const note = window.prompt('Why is this reading a mistake? (short note — optional)', '');
-    if (note === null) return;
-    setBusy(sub._id);
+  const nameOf = (i, sub) => `Reading ${i + 1}${String(sub._id) === String(current._id) ? ' (this one)' : ''}`;
+  // Don't show a Farm row at all when none of the readings have a farm.
+  const rowsToShow = COMPARE_FIELDS.filter(([key]) =>
+    key !== 'farm' || columns.some((sub) => String(val(sub, 'farm')).trim() !== ''));
+
+  async function post(body) {
+    setBusy(body.submissionId);
     try {
       const res = await fetch('/api/corrections', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submissionId: sub._id, field: 'dead', oldValue: val(sub, 'reading'), note }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed');
-      router.refresh(); // soft update — no full page reload
-      setBusy('');
-    } catch (e) { alert(e.message); setBusy(''); }
+      router.refresh();
+    } catch (e) { alert(e.message); }
+    setBusy(''); setEditId('');
   }
+  async function verify(sub) {
+    setBusy(sub._id);
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: sub._id, verified: true }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      router.refresh();
+    } catch (e) { alert(e.message); }
+    setBusy('');
+  }
+  function markDead(sub) {
+    const note = window.prompt('Why is this reading a mistake? (short note — optional)', '');
+    if (note === null) return;
+    post({ submissionId: sub._id, field: 'dead', oldValue: val(sub, 'reading'), note });
+  }
+  function saveEdit(sub) {
+    if (String(editVal).trim() === '') { alert('Enter the corrected reading.'); return; }
+    post({ submissionId: sub._id, field: 'reading', oldValue: val(sub, 'reading'), newValue: String(editVal).trim(), note: 'Corrected from duplicate review' });
+  }
+
   return (
     <div className="space-y-2">
-      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">⚖️ Comparison — {columns.length} readings, differences highlighted</div>
+      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">⚖️ Comparison — {columns.length} readings (earliest first), differences highlighted</div>
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-2 text-[11px] text-indigo-900">
+        Two reads on the same day <b>at different times can both be correct</b>. Use <b>✓ Correct</b> on each to keep them, <b>✎ Edit</b> to fix a value, or <b>🗑️ Mistake</b> to delete a genuine duplicate.
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border border-slate-200 rounded-lg">
           <thead>
@@ -278,7 +323,7 @@ function DuplicateCompare({ current, others, canVerify }) {
               <th className="text-left px-2 py-1.5 font-medium text-slate-500 whitespace-nowrap">Field</th>
               {columns.map((sub, i) => (
                 <th key={sub._id} className="text-left px-2 py-1.5 font-medium whitespace-nowrap">
-                  {nameOf(i)} <span className="font-mono text-[10px] text-slate-400">#{String(sub._id).slice(-5)}</span>
+                  {nameOf(i, sub)} <span className="font-mono text-[10px] text-slate-400">#{String(sub._id).slice(-5)}</span>
                   {isDeadSub(sub) && <span className="ml-1 text-[10px] text-slate-500">🗑️ deleted</span>}
                   {isCorrectedSub(sub) && <span className="ml-1 text-[10px] text-emerald-600">✎ corrected</span>}
                 </th>
@@ -286,8 +331,8 @@ function DuplicateCompare({ current, others, canVerify }) {
             </tr>
           </thead>
           <tbody>
-            {COMPARE_FIELDS.map(([key, label]) => {
-              const vals = columns.map((sub) => String(val(sub, key)));
+            {rowsToShow.map(([key, label]) => {
+              const vals = columns.map((sub) => dispVal(sub, key));
               const allSame = vals.every((x) => x === vals[0]);
               return (
                 <tr key={key} className={`border-t border-slate-100 ${allSame ? '' : 'bg-amber-50'}`}>
@@ -298,6 +343,36 @@ function DuplicateCompare({ current, others, canVerify }) {
                 </tr>
               );
             })}
+            {canVerify && (
+              <tr className="border-t border-slate-200 bg-slate-50/60 align-top">
+                <td className="px-2 py-2 text-slate-500 whitespace-nowrap">Actions</td>
+                {columns.map((sub) => (
+                  <td key={sub._id} className="px-2 py-2">
+                    {isDeadSub(sub) ? (
+                      <span className="text-[11px] text-slate-500">🗑️ deleted</span>
+                    ) : editId === String(sub._id) ? (
+                      <div className="flex flex-col gap-1">
+                        <input type="number" value={editVal} onChange={(e) => setEditVal(e.target.value)}
+                          className="w-24 px-2 py-1 rounded border border-amber-400 text-xs" placeholder="new reading" />
+                        <div className="flex gap-1">
+                          <button onClick={() => saveEdit(sub)} disabled={busy === sub._id} className="text-[11px] px-2 py-0.5 rounded bg-amber-600 text-white disabled:opacity-50">Save</button>
+                          <button onClick={() => setEditId('')} className="text-[11px] px-2 py-0.5 rounded border border-slate-300">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        <button onClick={() => { setEditId(String(sub._id)); setEditVal(String(val(sub, 'reading'))); }} disabled={!!busy}
+                          className="text-[11px] px-2 py-0.5 rounded border border-amber-400 text-amber-800 hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap">✎ Edit</button>
+                        <button onClick={() => verify(sub)} disabled={!!busy}
+                          className="text-[11px] px-2 py-0.5 rounded border border-emerald-400 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap">✓ Correct</button>
+                        <button onClick={() => markDead(sub)} disabled={!!busy}
+                          className="text-[11px] px-2 py-0.5 rounded border border-slate-400 text-slate-700 hover:bg-slate-100 disabled:opacity-50 whitespace-nowrap">🗑️ Mistake</button>
+                      </div>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -313,7 +388,7 @@ function DuplicateCompare({ current, others, canVerify }) {
             return (
               <div key={sub._id} className="space-y-1">
                 <div className="text-[11px] font-medium text-slate-600 truncate">
-                  {nameOf(i)} <span className="font-mono text-[10px] text-slate-400">#{String(sub._id).slice(-5)}</span>
+                  {nameOf(i, sub)} <span className="font-mono text-[10px] text-slate-400">#{String(sub._id).slice(-5)}</span>
                 </div>
                 {photos.length > 0 ? (
                   <div className="space-y-1">
@@ -341,24 +416,6 @@ function DuplicateCompare({ current, others, canVerify }) {
         </div>
       </div>
       {lb && <Lightbox src={lb} onClose={() => setLb(null)} label="Meter photo" />}
-
-      {canVerify && (
-        <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-xs text-slate-500">Mark the mistaken reading(s) as deleted:</span>
-          {columns.map((sub, i) => (
-            isDeadSub(sub) ? (
-              <span key={sub._id} className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 border border-slate-200">
-                {nameOf(i)} already deleted
-              </span>
-            ) : (
-              <button key={sub._id} onClick={() => markDead(sub)} disabled={!!busy}
-                className="text-xs px-3 py-1.5 rounded-lg border border-slate-400 text-slate-700 hover:bg-slate-100 disabled:opacity-50">
-                🗑️ {nameOf(i)} is the mistake
-              </button>
-            )
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -494,13 +551,18 @@ function FullFormEditor({ submission }) {
         <b className="font-mono">{getField(submission, 'serial') || '—'}</b>
         <span className="text-slate-400">·</span>
         <span>{getField(submission, 'village') || '—'}</span>
-        <span className="text-slate-400">·</span>
-        <span className="font-mono text-[11px]">🌾 {getField(submission, 'farm') || '—'}</span>
+        {getField(submission, 'farm') && <>
+          <span className="text-slate-400">·</span>
+          <span className="font-mono text-[11px]">🌾 {getField(submission, 'farm')}</span>
+        </>}
         <span className="text-slate-400">·</span>
         <span className="text-slate-400">#{String(submission._id).slice(-5)}</span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {EDITABLE.map(([path, label, logical]) => {
+          // Hide the Farm field entirely when the form has no farms and this
+          // submission has no farm value (nothing to edit).
+          if (logical === 'farm' && !getField(submission, 'farm') && (!master || (master.farms || []).length === 0)) return null;
           const raw = String(submission[path] ?? getField(submission, logical) ?? '');
           const changed = String(vals[path] ?? '') !== raw;
           const kind = fieldKind(logical);
@@ -731,6 +793,18 @@ function SubmissionPanel({ label, submission, highlight }) {
       <div className="text-xs text-slate-500 mb-2">
         #{submission._id} · {new Date(submission._submission_time).toLocaleString()}
       </div>
+      {/* Key facts, always shown (start/end time included) so nothing important
+          is buried in the raw field list below. */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-3 bg-white/60 rounded-lg border border-slate-200 p-2">
+        <Fact k="Date" v={getField(submission, 'date')} />
+        <Fact k="Reading" v={getField(submission, 'endReading') ?? getField(submission, 'reading')} strong />
+        <Fact k="Start time" v={fmtTime(getField(submission, 'startTime'))} />
+        <Fact k="End time" v={fmtTime(getField(submission, 'endTime'))} />
+        <Fact k="Surveyor" v={getField(submission, 'surveyor')} />
+        <Fact k="Village" v={getField(submission, 'village')} />
+        {getField(submission, 'farm') && <Fact k="Farm ID" v={getField(submission, 'farm')} />}
+        <Fact k="Meter ID" v={getField(submission, 'serial')} mono />
+      </div>
       <dl className="space-y-1 mb-3">
         {Object.entries(submission)
           .filter(([k]) => !k.startsWith('_') && !k.includes('/uuid') && !k.includes('/instanceID'))
@@ -797,6 +871,16 @@ function uniquePhotos(atts) {
     seen.add(base); out.push(a);
   }
   return out;
+}
+
+function Fact({ k, v, mono, strong }) {
+  const empty = v == null || v === '';
+  return (
+    <div className="flex justify-between gap-2">
+      <span className="text-slate-500 shrink-0">{k}</span>
+      <span className={`text-right ${mono ? 'font-mono' : ''} ${strong ? 'font-semibold' : ''} ${empty ? 'text-slate-300' : 'text-slate-900'}`}>{empty ? '—' : String(v)}</span>
+    </div>
+  );
 }
 
 function prettyKey(k) {

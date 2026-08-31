@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import { buildPrefillUrl } from '@/lib/prefill';
 
 const STATUS = {
   done:    { label: '✓ Done',         dot: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-800 border-emerald-200', row: 'bg-emerald-50/40' },
@@ -143,6 +144,9 @@ export default function MeterStatusTable({ week = 'this', date = '' }) {
           <ul className="divide-y divide-slate-100">
             {v.shownMeters.map((m) => {
               const st = STATUS[m.status];
+              const takeUrl = data.formUploadUrl
+                ? buildPrefillUrl(data.formUploadUrl, { village: v.village, meter: m.serial, name: data.surveyorName })
+                : null;
               return (
                 <li key={m.serial} className={`px-4 py-2.5 flex items-center gap-3 ${st.row}`}>
                   <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.dot}`} />
@@ -154,9 +158,18 @@ export default function MeterStatusTable({ week = 'this', date = '' }) {
                         : 'no readings yet'}
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border font-medium ${st.chip}`}>{st.label}</span>
-                    <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisPeriod, target)}/{target}</div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {takeUrl && m.status !== 'done' && (
+                      <a href={takeUrl} target="_blank" rel="noreferrer"
+                        title="Open the Kobo form with village, meter, your name and today's date already filled in"
+                        className="text-[11px] px-2 py-1 rounded-full bg-field-600 text-white font-medium hover:bg-field-700 whitespace-nowrap">
+                        ➕ Take reading
+                      </a>
+                    )}
+                    <div className="text-right">
+                      <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border font-medium ${st.chip}`}>{st.label}</span>
+                      <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisPeriod, target)}/{target}</div>
+                    </div>
                   </div>
                 </li>
               );

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchSubmissions } from '@/lib/kobo';
 import { getCurrentUser } from '@/lib/auth';
-import { getSettings } from '@/lib/db';
+import { getSettings, getDisabledRegistry } from '@/lib/db';
 import { getField, parseReading } from '@/lib/fieldMap';
 import { startOfWeek, endOfWeek, daysRemaining, readingDate } from '@/lib/weekly';
 
@@ -24,8 +24,9 @@ export async function GET(request) {
 
   let submissions = [];
   let settings;
+  let reg = { farms: [], pipes: [] };
   try {
-    [submissions, settings] = await Promise.all([fetchSubmissions(), getSettings()]);
+    [submissions, settings, reg] = await Promise.all([fetchSubmissions(), getSettings(), getDisabledRegistry()]);
   } catch (e) {
     return NextResponse.json({ error: e.message, villages: [] }, { status: 200 });
   }
@@ -33,6 +34,12 @@ export async function GET(request) {
   const target = Math.max(1, Number(settings?.reading?.target) || 2);
   const periodDays = Math.max(1, Number(settings?.reading?.periodDays) || 7);
   const periodLabel = String(settings?.reading?.periodLabel || 'week');
+  const formUploadUrl = settings?.project?.formUploadUrl || '';
+
+  // Turned-off meters/farms must never appear as pending in the tracker.
+  const lc = (x) => String(x || '').trim().toLowerCase();
+  const offFarms = new Set((reg.farms || []).map(lc));
+  const offMeters = new Set((reg.pipes || []).map(lc));
 
   let allowed = null;
   if (user.role === 'user') {
@@ -63,8 +70,11 @@ export async function GET(request) {
 
   const meters = {};
   for (const s of submissions) {
+    if (s._dead) continue; // dead readings never count toward the tracker
     const serial = getField(s, 'serial');
     if (!serial) continue;
+    // Skip meters (or whole farms) the admin has switched OFF.
+    if (offMeters.has(lc(serial)) || offFarms.has(lc(getField(s, 'farm')))) continue;
     const village = getField(s, 'village') || 'Unknown';
     if (allowed && !allowed.has(String(village).trim().toLowerCase())) continue;
 
@@ -126,5 +136,7 @@ export async function GET(request) {
     daysLeft,
     isCurrentWeek: isCurrent,
     role: user.role,
+    formUploadUrl,
+    surveyorName: user.role === 'user' ? user.name : '',
   });
 }
