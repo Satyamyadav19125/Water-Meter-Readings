@@ -20,6 +20,8 @@ export default function AssignmentsPage() {
   const [surveyors, setSurveyors] = useState([]);
   const [allVillages, setAllVillages] = useState([]);
   const [pairings, setPairings] = useState({});
+  const [stats, setStats] = useState({}); // surveyor name -> reading stats
+  const [statsMeta, setStatsMeta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -35,11 +37,12 @@ export default function AssignmentsPage() {
   async function load() {
     setLoading(true);
     try {
-      const [aRes, uRes, sRes, vRes] = await Promise.all([
+      const [aRes, uRes, sRes, vRes, stRes] = await Promise.all([
         fetch('/api/assignments'),
         fetch('/api/auth/check'),
         fetch('/api/surveyors').catch(() => null),
         fetch('/api/villages').catch(() => null),
+        fetch('/api/surveyor-stats').catch(() => null),
       ]);
       const aData = await parseJsonSafe(aRes);
       if (!aRes.ok) throw new Error(aData.error || 'Failed to load');
@@ -53,6 +56,13 @@ export default function AssignmentsPage() {
       if (vRes && vRes.ok) {
         const v = await parseJsonSafe(vRes);
         setAllVillages(v.villages || []);
+      }
+      if (stRes && stRes.ok) {
+        const st = await parseJsonSafe(stRes);
+        const byName = {};
+        for (const row of (st.surveyors || [])) byName[String(row.name).trim().toLowerCase()] = row;
+        setStats(byName);
+        setStatsMeta({ periodLabel: st.periodLabel || 'week' });
       }
       let list = aData.assignments || [];
       list = list.map((a) => {
@@ -138,6 +148,10 @@ export default function AssignmentsPage() {
       {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded p-2 text-sm">{error}</div>}
 
       {!user && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900"><a href="/login" className="underline font-medium">Log in</a> to view or manage assignments.</div>}
+
+      {/* Team productivity summary — at a glance, how much the whole team has
+          produced this period and who is leading. */}
+      {isAdmin && <TeamSummary stats={stats} periodLabel={statsMeta?.periodLabel || 'week'} />}
 
       {/* People & villages come FIRST — the meter tracker lives in the
           "Missed readings" tab so the same table isn't shown twice. */}
@@ -249,6 +263,8 @@ export default function AssignmentsPage() {
                   </div>
                 )}
               </div>
+
+              <SurveyorProgress stat={stats[String(person.person || '').trim().toLowerCase()]} periodLabel={statsMeta?.periodLabel || 'week'} />
             </div>
           );
         })}
@@ -290,5 +306,76 @@ function Field({ label, children }) {
       <span className="block text-[10px] uppercase tracking-wide text-slate-500 mb-1">{label}</span>
       {children}
     </label>
+  );
+}
+
+// "Work done" strip on a person card: how many readings this field assistant has
+// actually taken (all-time + this period), how many distinct meters, and how
+// long since they were last active — so the admin can spot who has gone quiet.
+function relDays(iso) {
+  if (!iso) return null;
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (d <= 0) return 'today';
+  if (d === 1) return 'yesterday';
+  return `${d} days ago`;
+}
+function SurveyorProgress({ stat, periodLabel }) {
+  if (!stat) {
+    return (
+      <div className="px-3 sm:px-4 py-2.5 border-t border-slate-100 bg-slate-50/60">
+        <div className="text-[11px] text-slate-400">No readings recorded yet for this person.</div>
+      </div>
+    );
+  }
+  const last = relDays(stat.lastActive);
+  const stale = stat.lastActive && (Date.now() - new Date(stat.lastActive).getTime()) > 10 * 86400000;
+  return (
+    <div className="px-3 sm:px-4 py-2.5 border-t border-slate-100 bg-slate-50/60">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">📊 Readings taken</span>
+        {last && (
+          <span className={`text-[11px] ${stale ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
+            {stale ? '⚠️ ' : ''}last active {last}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        <Stat n={stat.total} label="total" />
+        <Stat n={stat.thisPeriod} label={`this ${periodLabel}`} accent />
+        <Stat n={stat.meters} label="meters" />
+        <Stat n={stat.villages} label="villages" />
+      </div>
+    </div>
+  );
+}
+// Whole-team roll-up shown to admins above the roster.
+function TeamSummary({ stats, periodLabel }) {
+  const list = Object.values(stats || {});
+  if (list.length === 0) return null;
+  const total = list.reduce((a, s) => a + (s.total || 0), 0);
+  const thisPeriod = list.reduce((a, s) => a + (s.thisPeriod || 0), 0);
+  const active = list.filter((s) => (s.thisPeriod || 0) > 0).length;
+  const top = list.slice().sort((a, b) => (b.thisPeriod || 0) - (a.thisPeriod || 0))[0];
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium mb-2">📊 Team activity</div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <Stat n={thisPeriod} label={`readings this ${periodLabel}`} accent />
+        <Stat n={total} label="readings all-time" />
+        <Stat n={`${active}/${list.length}`} label={`active this ${periodLabel}`} />
+        <div className="rounded-lg px-2 py-1.5 text-center bg-white border border-slate-200">
+          <div className="text-sm font-bold text-slate-800 truncate" title={top?.name}>{top && top.thisPeriod > 0 ? top.name : '—'}</div>
+          <div className="text-[10px] text-slate-500 leading-tight">most active</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function Stat({ n, label, accent }) {
+  return (
+    <div className={`rounded-lg px-2 py-1.5 text-center ${accent ? 'bg-brand-50 border border-brand-100' : 'bg-white border border-slate-200'}`}>
+      <div className={`text-base font-bold tabular-nums ${accent ? 'text-brand-700' : 'text-slate-800'}`}>{n}</div>
+      <div className="text-[10px] text-slate-500 leading-tight">{label}</div>
+    </div>
   );
 }

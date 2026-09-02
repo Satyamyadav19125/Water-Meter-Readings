@@ -28,6 +28,65 @@ function parseSubLoc(submission) {
   return null;
 }
 
+// Full GPS breakdown for the detail view: lat, lng and (when present) altitude &
+// accuracy, plus the raw string — so the admin can copy exact coordinates.
+function parseFullLoc(submission) {
+  const base = parseSubLoc(submission);
+  if (!base) return null;
+  const raw = getField(submission, 'location');
+  let alt = null, acc = null;
+  if (typeof raw === 'string') {
+    const p = raw.trim().split(/\s+/).map(Number);
+    if (p.length >= 3 && Number.isFinite(p[2])) alt = p[2];
+    if (p.length >= 4 && Number.isFinite(p[3])) acc = p[3];
+  }
+  return { ...base, alt, acc, raw: typeof raw === 'string' && raw.trim() ? raw.trim() : `${base.lat} ${base.lng}` };
+}
+
+// Small copy-to-clipboard button. Falls back silently if the browser blocks the
+// clipboard (e.g. insecure context) — the value stays selectable on screen.
+function CopyBtn({ text, label = 'Copy' }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button type="button" title={`Copy ${text}`}
+      onClick={async (e) => {
+        e.stopPropagation();
+        try { await navigator.clipboard.writeText(String(text)); setDone(true); setTimeout(() => setDone(false), 1200); } catch {}
+      }}
+      className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 whitespace-nowrap">
+      {done ? '✓ Copied' : `📋 ${label}`}
+    </button>
+  );
+}
+
+// Copyable coordinates block: latitude, longitude, altitude and accuracy each on
+// their own line with a copy button, plus a "copy lat, lng" shortcut for pasting
+// into Google Maps.
+function CoordsBlock({ loc }) {
+  const latLng = `${loc.lat}, ${loc.lng}`;
+  const Row = ({ k, v, copy }) => (
+    <div className="flex items-center justify-between gap-2 py-0.5">
+      <span className="text-slate-500 shrink-0">{k}</span>
+      <span className="flex items-center gap-1.5 min-w-0">
+        <span className="font-mono text-[11px] text-slate-800 truncate select-all">{v}</span>
+        {copy != null && <CopyBtn text={copy} />}
+      </span>
+    </div>
+  );
+  return (
+    <div className="text-xs bg-white/60 rounded-lg border border-slate-200 p-2 mb-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">GPS coordinates</span>
+        <CopyBtn text={latLng} label="Copy lat, lng" />
+      </div>
+      <Row k="Latitude" v={loc.lat} copy={loc.lat} />
+      <Row k="Longitude" v={loc.lng} copy={loc.lng} />
+      {loc.alt != null && <Row k="Altitude" v={`${loc.alt} m`} copy={loc.alt} />}
+      {loc.acc != null && <Row k="Accuracy" v={`±${loc.acc} m`} copy={loc.acc} />}
+    </div>
+  );
+}
+
 // Fields already shown on the collapsed card (village, farm, pipe id) — hidden
 // from the expanded "Form data" list so the detail doesn't repeat the header.
 const DETAIL_SKIP_SEGMENTS = new Set([
@@ -195,17 +254,17 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
   return (
     <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4">
       {isSameDayDup && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-indigo-900 text-sm">
-          <span className="font-semibold">👯 Read {others.length + 1} times on this date.</span> All {others.length + 1} forms are shown below — decide which is correct, then correct the value or mark the mistaken one(s) as deleted. A deleted one stays here for reference and the kept one moves to Clean.
+        <div className="bg-sky-50 border border-sky-100 rounded-lg p-3 text-slate-700 text-sm">
+          <span className="font-semibold text-slate-800">Read {others.length + 1} times on this date.</span> All {others.length + 1} forms are shown below — decide which is correct, then edit the value or mark the mistaken one(s) as dead. A dead one stays here for reference and the kept one moves to Clean.
         </div>
       )}
       {flag && isVerified && (
-        <div className="bg-emerald-100 border border-emerald-300 rounded-lg p-3 text-emerald-900">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-800">
           <div className="font-semibold mb-1 flex items-center gap-2">✓ Marked correct by admin</div>
           <p className="text-sm">This submission was flagged automatically but an admin reviewed it and confirmed it's fine, so it no longer counts as a red flag.</p>
           {canVerify && (
             <button onClick={() => onToggleVerify(submission._id, false)} disabled={busy}
-              className="mt-2 text-xs px-3 py-1.5 rounded-lg border border-emerald-400 text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">
+              className="mt-2 text-xs px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
               {busy ? 'Working…' : '↺ Undo — flag it again'}
             </button>
           )}
@@ -213,7 +272,7 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
       )}
 
       {flag && !isVerified && (
-        <div className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-900">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-800">
           <div className="font-semibold mb-1.5 flex items-center gap-2">🚩 Red flag</div>
           <ul className="list-disc pl-5 text-sm space-y-1">
             {flag.flags.map((f, i) => <li key={i}><strong className="capitalize">{(f.type || '').replace(/_/g, ' ')}:</strong> {f.message}</li>)}
@@ -227,14 +286,15 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
         </div>
       )}
 
-      {canVerify && <ReadingCorrection submission={submission} />}
-
       {others.length > 0 ? (
         <DuplicateCompare current={submission} others={others} canVerify={canVerify} />
       ) : (
         <SubmissionPanel label="Form data" submission={submission} />
       )}
 
+      {/* One place to fix a reading: the full-form editor. It edits every field
+          (the reading value included, so a separate "correct the value" button is
+          no longer needed) and also holds the "mark as dead" action. */}
       {canVerify && <FullFormEditor submission={submission} />}
     </div>
   );
@@ -308,9 +368,9 @@ function DuplicateCompare({ current, others, canVerify }) {
 
   return (
     <div className="space-y-2">
-      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">⚖️ Comparison — {columns.length} readings (earliest first), differences highlighted</div>
-      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-2 text-[11px] text-indigo-900">
-        Two reads on the same day <b>at different times can both be correct</b>. Use <b>✓ Correct</b> on each to keep them, <b>✎ Edit</b> to fix a value, or <b>🗑️ Mistake</b> to delete a genuine duplicate.
+      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Comparison — {columns.length} readings (earliest first), differences highlighted</div>
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-[11px] text-slate-600">
+        Two reads on the same day <b>at different times can both be correct</b>. Use <b>✓ Correct</b> on each to keep them, <b>✎ Edit</b> to fix a value, or <b>Mistake</b> to delete a genuine duplicate.
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border border-slate-200 rounded-lg">
@@ -330,12 +390,21 @@ function DuplicateCompare({ current, others, canVerify }) {
             {rowsToShow.map(([key, label]) => {
               const vals = columns.map((sub) => dispVal(sub, key));
               const allSame = vals.every((x) => x === vals[0]);
+              const isGps = key === 'location';
               return (
-                <tr key={key} className={`border-t border-slate-100 ${allSame ? '' : 'bg-amber-50'}`}>
-                  <td className="px-2 py-1 text-slate-500 whitespace-nowrap">{label}</td>
-                  {vals.map((x, i) => (
-                    <td key={i} className={`px-2 py-1 ${allSame ? '' : 'font-semibold text-amber-800'}`}>{x || '—'}</td>
-                  ))}
+                <tr key={key} className={`border-t border-slate-100 ${allSame ? '' : 'bg-sky-50'}`}>
+                  <td className="px-2 py-1 text-slate-500 whitespace-nowrap align-top">{label}</td>
+                  {vals.map((x, i) => {
+                    const gps = isGps ? parseSubLoc(columns[i]) : null;
+                    return (
+                      <td key={i} className={`px-2 py-1 ${allSame ? '' : 'font-semibold text-sky-900'}`}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={isGps ? 'font-mono text-[11px] select-all' : ''}>{x || '—'}</span>
+                          {gps && <CopyBtn text={`${gps.lat}, ${gps.lng}`} label="lat,lng" />}
+                        </div>
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -458,8 +527,12 @@ function toDateInput(v) {
 }
 
 function FullFormEditor({ submission, defaultOpen = false, onClose }) {
-  const existing = submission._correction && submission._correction.field === 'fields'
-    ? (submission._correction.fields || {}) : {};
+  const corr = submission._correction || null;
+  const isDead = corr && corr.field === 'dead';
+  // A legacy value-only correction (field 'reading') — shown read-only; new fixes
+  // go through the full-form editor's Reading field instead.
+  const readingCorr = corr && (corr.field === 'reading' || !corr.field) ? corr : null;
+  const existing = corr && corr.field === 'fields' ? (corr.fields || {}) : {};
   const [open, setOpen] = useState(false);
   const [vals, setVals] = useState({});
   const [note, setNote] = useState('');
@@ -524,19 +597,68 @@ function FullFormEditor({ submission, defaultOpen = false, onClose }) {
       setBusy(false); setOpen(false);
     } catch (e) { setErr(e.message); setBusy(false); }
   }
+  // Mark this reading as dead (submitted by mistake / a duplicate). Lives here in
+  // the edit area so there's ONE place to deal with a wrong reading.
+  async function markDead() {
+    const note = window.prompt('Why is this reading a mistake / duplicate? (short note — optional)', '');
+    if (note === null) return;
+    setBusy(true); setErr('');
+    try {
+      const oldValue = getField(submission, 'endReading') ?? getField(submission, 'reading') ?? '';
+      const res = await fetch('/api/corrections', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: submission._id, field: 'dead', oldValue, note }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) throw new Error(d.error || `Failed (HTTP ${res.status})`);
+      router.refresh();
+      setBusy(false);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+
+  // --- Already marked dead: show the status + a Restore button (no editing). ---
+  if (isDead) {
+    return (
+      <div className="rounded-lg border border-slate-300 bg-slate-50 p-3">
+        <div className="text-sm font-semibold text-slate-700">🗑️ Marked as a dead reading (mistake / duplicate)</div>
+        <div className="text-xs text-slate-500 mt-0.5">
+          Raw value {corr.oldValue ?? '—'} stays on Kobo, but the tool ignores this reading everywhere — no flags, not counted, off the map.
+          {corr.note ? ` Note: ${corr.note}.` : ''}{corr.by ? ` — by ${corr.by}` : ''}
+        </div>
+        {err && <div className="text-xs text-red-600 mt-1">{err}</div>}
+        <button onClick={revert} disabled={busy} className="mt-2 text-xs px-3 py-1.5 rounded-lg border border-slate-400 text-slate-700 hover:bg-white disabled:opacity-50">
+          {busy ? 'Working…' : '↺ Restore this reading'}
+        </button>
+      </div>
+    );
+  }
 
   if (!open) {
+    const editedCount = Object.keys(existing).length;
     return (
-      <div className="flex items-center gap-2 flex-wrap">
-        <button onClick={begin} className="text-xs px-3 py-1.5 rounded-lg border border-sky-400 text-sky-700 hover:bg-sky-50">
-          ✏️ Edit full form
-        </button>
-        {Object.keys(existing).length > 0 && (
-          <>
-            <span className="text-xs text-emerald-700">✎ {Object.keys(existing).length} field(s) edited</span>
-            <button onClick={revert} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50">↺ Revert all</button>
-          </>
+      <div className="space-y-2">
+        {editedCount > 0 && (
+          <div className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-2.5 py-1.5">
+            ✎ {editedCount} field(s) edited by an admin — the tool uses the edited values everywhere; raw Kobo data is untouched.
+          </div>
         )}
+        {readingCorr && (
+          <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+            Reading corrected <span className="line-through text-slate-400">{readingCorr.oldValue ?? '—'}</span> → <b className="text-slate-800">{readingCorr.newValue}</b>
+          </div>
+        )}
+        {err && <div className="text-xs text-red-600">{err}</div>}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={begin} className="text-xs px-3 py-1.5 rounded-lg border border-sky-400 text-sky-700 hover:bg-sky-50 font-medium">
+            ✏️ Edit full form
+          </button>
+          <button onClick={markDead} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+            {busy ? 'Working…' : '🗑️ Mark as dead (mistake / duplicate)'}
+          </button>
+          {(editedCount > 0 || readingCorr) && (
+            <button onClick={revert} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-500 hover:bg-slate-50 disabled:opacity-50">↺ Revert</button>
+          )}
+        </div>
       </div>
     );
   }
@@ -632,159 +754,6 @@ function FullFormEditor({ submission, defaultOpen = false, onClose }) {
   );
 }
 
-// Admin-only reading review. Two independent actions on a submission:
-//  1. CORRECT the value — raw Kobo untouched; tool uses the corrected number
-//     everywhere so the wrong value stops triggering red flags. Shows old→new.
-//  2. Mark as a DEAD reading — submitted by mistake (e.g. a duplicate where the
-//     OTHER reading is the correct one). The row stays on Kobo but the tool
-//     ignores it entirely: no flags, not counted, off the map/analytics.
-function ReadingCorrection({ submission }) {
-  const corr = submission._correction || null;
-  const isDead = corr && corr.field === 'dead';
-  // Only a genuine READING correction shows the "Reading corrected old→new" box.
-  // A full-form edit (field 'fields') is shown by the form editor instead, so it
-  // must NOT render here as a blank "Reading corrected".
-  const existing = corr && (corr.field === 'reading' || !corr.field) ? corr : null;
-  const rawValue = existing
-    ? existing.oldValue
-    : (getField(submission, 'endReading') ?? getField(submission, 'reading') ?? '');
-  const [mode, setMode] = useState(null); // null | 'value' | 'dead'
-  const [newValue, setNewValue] = useState(existing ? existing.newValue : '');
-  const [note, setNote] = useState(existing ? (existing.note || '') : '');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  const router = useRouter();
-  async function post(body) {
-    setBusy(true); setErr('');
-    try {
-      const res = await fetch('/api/corrections', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submissionId: submission._id, ...body }),
-      });
-      let data = {};
-      try { data = await res.json(); } catch {}
-      if (!res.ok || !data.ok) throw new Error(data.error || `Save failed (HTTP ${res.status})`);
-      // Soft refresh (no full page reload): the server re-renders with the new
-      // correction overlaid, so this row moves into Corrected/Clean/Deleted.
-      router.refresh();
-      setBusy(false); setMode(null);
-    } catch (e) { setErr(e.message); setBusy(false); }
-  }
-  const saveValue = () => {
-    if (String(newValue).trim() === '') { setErr('Enter the corrected reading.'); return; }
-    post({ field: 'reading', oldValue: rawValue, newValue: String(newValue).trim(), note });
-  };
-  const markDead = () => post({ field: 'dead', oldValue: rawValue, note });
-  const beginDead = () => { setErr(''); setNote(existing ? (existing.note || '') : ''); setMode('dead'); };
-  async function revert() {
-    setBusy(true); setErr('');
-    try {
-      const res = await fetch(`/api/corrections?id=${encodeURIComponent(submission._id)}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error((await res.json()).error || 'Revert failed');
-      router.refresh();
-      setBusy(false); setMode(null);
-    } catch (e) { setErr(e.message); setBusy(false); }
-  }
-
-  // --- Already marked dead ---
-  if (isDead) {
-    return (
-      <div className="bg-slate-100 border border-slate-300 rounded-lg p-3">
-        <div className="text-sm font-semibold text-slate-700">🗑️ Marked as a dead reading (submitted by mistake)</div>
-        <div className="text-xs text-slate-500 mt-0.5">
-          Raw value {existing.oldValue ?? '—'} is still on Kobo but the tool ignores this reading everywhere — no flags, not counted, off the map.
-          {existing.note ? ` Note: ${existing.note}.` : ''} by {existing.by || 'admin'}{existing.at ? ` · ${new Date(existing.at).toLocaleDateString()}` : ''}
-        </div>
-        {err && <div className="text-xs text-red-600 mt-1">{err}</div>}
-        <button onClick={revert} disabled={busy} className="mt-2 text-xs px-3 py-1.5 rounded-lg border border-slate-400 text-slate-700 hover:bg-white disabled:opacity-50">
-          ↺ Restore this reading
-        </button>
-      </div>
-    );
-  }
-
-  // --- Already value-corrected ---
-  if (existing) {
-    return (
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-        <div className="text-sm"><span className="font-semibold text-amber-900">✎ Reading corrected</span></div>
-        <div className="mt-1 flex items-center gap-2 flex-wrap text-sm">
-          <span className="line-through text-slate-500">{existing.oldValue ?? '—'}</span>
-          <span className="text-slate-400">→</span>
-          <span className="font-bold text-emerald-700">{existing.newValue}</span>
-        </div>
-        {existing.note && <div className="text-xs text-slate-600 mt-1">Note: {existing.note}</div>}
-        <div className="text-[11px] text-slate-500 mt-0.5">by {existing.by || 'admin'}. Tool uses the corrected value everywhere; raw Kobo data untouched.</div>
-        {err && <div className="text-xs text-red-600 mt-1">{err}</div>}
-        <div className="flex gap-2 mt-2 flex-wrap">
-          <button onClick={() => { setMode('value'); setNewValue(existing.newValue); }} className="text-xs px-3 py-1.5 rounded-lg border border-amber-400 text-amber-800 hover:bg-amber-100">✎ Edit</button>
-          <button onClick={revert} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50">↺ Revert to raw ({existing.oldValue ?? '—'})</button>
-        </div>
-        {mode === 'value' && (
-          <ValueForm rawValue={rawValue} newValue={newValue} setNewValue={setNewValue} note={note} setNote={setNote} err={err} busy={busy} onSave={saveValue} onCancel={() => setMode(null)} />
-        )}
-      </div>
-    );
-  }
-
-  // --- No correction yet: offer both actions ---
-  return (
-    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-      {mode === null && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-slate-600 mr-1">Reading looks wrong?</span>
-          <button onClick={() => setMode('value')} className="text-xs px-3 py-1.5 rounded-lg border border-amber-400 text-amber-800 hover:bg-amber-100">✎ Correct the value</button>
-          <button onClick={beginDead} className="text-xs px-3 py-1.5 rounded-lg border border-slate-400 text-slate-700 hover:bg-slate-100">🗑️ Mark as dead (mistake / duplicate)</button>
-        </div>
-      )}
-      {mode === 'value' && (
-        <ValueForm rawValue={rawValue} newValue={newValue} setNewValue={setNewValue} note={note} setNote={setNote} err={err} busy={busy} onSave={saveValue} onCancel={() => setMode(null)} />
-      )}
-      {mode === 'dead' && (
-        <DeadForm note={note} setNote={setNote} err={err} busy={busy} onConfirm={markDead} onCancel={() => setMode(null)} />
-      )}
-      {err && mode === null && <div className="text-xs text-red-600 mt-1">{err}</div>}
-    </div>
-  );
-}
-
-function ValueForm({ rawValue, newValue, setNewValue, note, setNote, err, busy, onSave, onCancel }) {
-  return (
-    <div className="space-y-2 mt-2">
-      <div className="text-xs text-slate-600">Raw Kobo reading: <b>{rawValue || '—'}</b> — enter the corrected value:</div>
-      <div className="flex items-center gap-2 flex-wrap">
-        <input type="number" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="e.g. 2000" className="w-28 px-2 py-1.5 rounded border border-slate-300 text-sm" />
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (optional)" className="flex-1 min-w-[140px] px-2 py-1.5 rounded border border-slate-300 text-sm" />
-      </div>
-      {err && <div className="text-xs text-red-600">{err}</div>}
-      <div className="flex gap-2">
-        <button onClick={onSave} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-50">{busy ? 'Saving…' : 'Save correction'}</button>
-        <button onClick={onCancel} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600">Cancel</button>
-      </div>
-    </div>
-  );
-}
-
-// Note field shown before a reading is marked dead, so the admin records WHY
-// (mistake, duplicate, wrong pipe, etc.). The note is saved and displayed on
-// the dead reading afterwards.
-function DeadForm({ note, setNote, err, busy, onConfirm, onCancel }) {
-  return (
-    <div className="space-y-2">
-      <div className="text-xs text-slate-600">Why is this reading dead? (mistake, duplicate, wrong pipe…). This note is saved with the dead reading.</div>
-      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
-        placeholder="e.g. Duplicate of the reading taken the same day — this one is the mistake."
-        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
-      {err && <div className="text-xs text-red-600">{err}</div>}
-      <div className="flex gap-2">
-        <button onClick={onConfirm} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg bg-slate-700 text-white font-medium hover:bg-slate-800 disabled:opacity-50">{busy ? 'Saving…' : '🗑️ Confirm dead reading'}</button>
-        <button onClick={onCancel} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 disabled:opacity-50">Cancel</button>
-      </div>
-    </div>
-  );
-}
-
 function SubmissionPanel({ label, submission, highlight }) {
   const [lb, setLb] = useState(null);
   const photos = uniquePhotos(submission._attachments);
@@ -817,11 +786,12 @@ function SubmissionPanel({ label, submission, highlight }) {
           location map below already cover everything — the full raw record is
           in the admin Kobo View tab — so it's no longer duplicated here. */}
       {(() => {
-        const loc = parseSubLoc(submission);
+        const loc = parseFullLoc(submission);
         if (!loc) return null;
         return (
           <div className="mb-3">
             <div className="text-[11px] text-slate-500 mb-1">📍 Where this reading was taken</div>
+            <CoordsBlock loc={loc} />
             <MiniMap lat={loc.lat} lng={loc.lng} label={getField(submission, 'serial') || 'Reading location'} />
             <a target="_blank" rel="noreferrer"
               href={`https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`}
