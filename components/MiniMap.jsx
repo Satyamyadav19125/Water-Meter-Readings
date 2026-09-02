@@ -48,7 +48,10 @@ export default function MiniMap({ lat, lng, label = '', me = null, route = null 
       });
       street.addTo(map);
       L.control.layers({ '🗺️ Street': street, '🛰️ Satellite': satellite, '⛰️ Topo': topo }, {}, { position: 'topright' }).addTo(map);
-      L.marker([lat, lng]).addTo(map).bindPopup(label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      // A canvas circleMarker (not L.marker) — Leaflet's default marker icon uses
+      // image files that break when Leaflet is bundled, so we draw a dot instead.
+      L.circleMarker([lat, lng], { radius: 9, color: '#ffffff', weight: 3, fillColor: '#dc2626', fillOpacity: 1 })
+        .addTo(map).bindPopup(label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
       mapRef.current = map;
       if (!cancelled) setReady(true);
       // Modal opens with an animation — recalc size once it settles.

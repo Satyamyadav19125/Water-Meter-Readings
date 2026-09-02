@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getField } from '@/lib/fieldMap';
-import { readingTime } from '@/lib/redflags';
+import { readingTime, readingInstant } from '@/lib/redflags';
 import Lightbox from '@/components/Lightbox';
 import MiniMap from '@/components/MiniMap';
 
@@ -258,7 +258,7 @@ function DuplicateCompare({ current, others, canVerify }) {
   // day is column 1. The opened card is tagged "(this one)".
   const columns = [current, ...others]
     .slice()
-    .sort((a, b) => readingTime(a) - readingTime(b));
+    .sort((a, b) => readingInstant(a) - readingInstant(b));
   const val = (sub, key) => {
     if (key === 'reading') return getField(sub, 'endReading') ?? getField(sub, 'reading') ?? '';
     return getField(sub, key) ?? '';
@@ -582,16 +582,20 @@ function FullFormEditor({ submission, defaultOpen = false, onClose }) {
             );
           } else if (kind === 'village' || kind === 'farm' || kind === 'meter') {
             const cur = String(vals[path] ?? '');
-            // The Meter list narrows to the currently-chosen farm (if that farm
-            // has known meters); otherwise it shows every meter.
+            // The Meter list narrows to the currently-chosen VILLAGE (and farm, if
+            // the form has farms); otherwise it shows every meter.
             let list = [];
             if (master) {
               if (kind === 'village') list = master.villages;
               else if (kind === 'farm') list = master.farms;
               else {
-                const selFarm = String(vals['group_2/farm'] ?? '');
-                const forFarm = selFarm ? master.rows.filter((r) => String(r.farm) === selFarm).map((r) => r.serial) : [];
-                list = forFarm.length ? forFarm : master.pipes;
+                const selVillage = String(vals['group_1/Q2'] ?? '').trim().toLowerCase();
+                const selFarm = String(vals['group_2/farm'] ?? '').trim().toLowerCase();
+                let rows = master.rows;
+                if (selVillage) rows = rows.filter((r) => String(r.village || '').trim().toLowerCase() === selVillage);
+                if (selFarm) rows = rows.filter((r) => String(r.farm || '').trim().toLowerCase() === selFarm);
+                const scoped = rows.map((r) => r.serial).filter(Boolean);
+                list = scoped.length ? scoped : master.pipes;
               }
             }
             const label = kind === 'village' ? 'village' : kind === 'farm' ? 'farm ID' : 'meter ID';
@@ -635,13 +639,17 @@ function FullFormEditor({ submission, defaultOpen = false, onClose }) {
 //     OTHER reading is the correct one). The row stays on Kobo but the tool
 //     ignores it entirely: no flags, not counted, off the map/analytics.
 function ReadingCorrection({ submission }) {
-  const existing = submission._correction || null;
-  const isDead = existing && existing.field === 'dead';
-  const rawValue = existing && existing.field !== 'dead'
+  const corr = submission._correction || null;
+  const isDead = corr && corr.field === 'dead';
+  // Only a genuine READING correction shows the "Reading corrected old→new" box.
+  // A full-form edit (field 'fields') is shown by the form editor instead, so it
+  // must NOT render here as a blank "Reading corrected".
+  const existing = corr && (corr.field === 'reading' || !corr.field) ? corr : null;
+  const rawValue = existing
     ? existing.oldValue
     : (getField(submission, 'endReading') ?? getField(submission, 'reading') ?? '');
   const [mode, setMode] = useState(null); // null | 'value' | 'dead'
-  const [newValue, setNewValue] = useState(existing && !isDead ? existing.newValue : '');
+  const [newValue, setNewValue] = useState(existing ? existing.newValue : '');
   const [note, setNote] = useState(existing ? (existing.note || '') : '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
