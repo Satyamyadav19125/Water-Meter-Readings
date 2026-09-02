@@ -43,46 +43,23 @@ function parseFullLoc(submission) {
   return { ...base, alt, acc, raw: typeof raw === 'string' && raw.trim() ? raw.trim() : `${base.lat} ${base.lng}` };
 }
 
-// Small copy-to-clipboard button. Falls back silently if the browser blocks the
-// clipboard (e.g. insecure context) — the value stays selectable on screen.
-function CopyBtn({ text, label = 'Copy' }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button type="button" title={`Copy ${text}`}
-      onClick={async (e) => {
-        e.stopPropagation();
-        try { await navigator.clipboard.writeText(String(text)); setDone(true); setTimeout(() => setDone(false), 1200); } catch {}
-      }}
-      className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 whitespace-nowrap">
-      {done ? '✓ Copied' : `📋 ${label}`}
-    </button>
-  );
-}
-
-// Copyable coordinates block: latitude, longitude, altitude and accuracy each on
-// their own line with a copy button, plus a "copy lat, lng" shortcut for pasting
-// into Google Maps.
+// Coordinates block: latitude, longitude, altitude and accuracy, each on its own
+// line. Values are selectable (select-all) so they can still be copied by hand —
+// but there are no copy buttons cluttering the panel.
 function CoordsBlock({ loc }) {
-  const latLng = `${loc.lat}, ${loc.lng}`;
-  const Row = ({ k, v, copy }) => (
+  const Row = ({ k, v }) => (
     <div className="flex items-center justify-between gap-2 py-0.5">
       <span className="text-slate-500 shrink-0">{k}</span>
-      <span className="flex items-center gap-1.5 min-w-0">
-        <span className="font-mono text-[11px] text-slate-800 truncate select-all">{v}</span>
-        {copy != null && <CopyBtn text={copy} />}
-      </span>
+      <span className="font-mono text-[11px] text-slate-800 truncate select-all">{v}</span>
     </div>
   );
   return (
     <div className="text-xs bg-white/60 rounded-lg border border-slate-200 p-2 mb-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">GPS coordinates</span>
-        <CopyBtn text={latLng} label="Copy lat, lng" />
-      </div>
-      <Row k="Latitude" v={loc.lat} copy={loc.lat} />
-      <Row k="Longitude" v={loc.lng} copy={loc.lng} />
-      {loc.alt != null && <Row k="Altitude" v={`${loc.alt} m`} copy={loc.alt} />}
-      {loc.acc != null && <Row k="Accuracy" v={`±${loc.acc} m`} copy={loc.acc} />}
+      <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium mb-1">GPS coordinates</div>
+      <Row k="Latitude" v={loc.lat} />
+      <Row k="Longitude" v={loc.lng} />
+      {loc.alt != null && <Row k="Altitude" v={`${loc.alt} m`} />}
+      {loc.acc != null && <Row k="Accuracy" v={`±${loc.acc} m`} />}
     </div>
   );
 }
@@ -252,7 +229,10 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
   const isSameDayDup = !flagTarget && others.length > 0;
 
   return (
-    <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4">
+    // The expanded body is always a clean white panel — even when the collapsed
+    // card header is tinted for a red flag — so the detail never looks washed in
+    // pink/red behind the comparison table, photos and editor.
+    <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4 bg-white">
       {isSameDayDup && (
         <div className="bg-sky-50 border border-sky-100 rounded-lg p-3 text-slate-700 text-sm">
           <span className="font-semibold text-slate-800">Read {others.length + 1} times on this date.</span> All {others.length + 1} forms are shown below — decide which is correct, then edit the value or mark the mistaken one(s) as dead. A dead one stays here for reference and the kept one moves to Clean.
@@ -292,10 +272,11 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
         <SubmissionPanel label="Form data" submission={submission} />
       )}
 
-      {/* One place to fix a reading: the full-form editor. It edits every field
-          (the reading value included, so a separate "correct the value" button is
-          no longer needed) and also holds the "mark as dead" action. */}
-      {canVerify && <FullFormEditor submission={submission} />}
+      {/* One place to fix a single reading: the full-form editor (edits every
+          field incl. the reading value, and holds "mark as dead"). Hidden when
+          two+ forms are being compared — there, each column has its own Edit
+          form / Mistake buttons, so a second editor down here is redundant. */}
+      {canVerify && others.length === 0 && <FullFormEditor submission={submission} />}
     </div>
   );
 }
@@ -394,17 +375,11 @@ function DuplicateCompare({ current, others, canVerify }) {
               return (
                 <tr key={key} className={`border-t border-slate-100 ${allSame ? '' : 'bg-sky-50'}`}>
                   <td className="px-2 py-1 text-slate-500 whitespace-nowrap align-top">{label}</td>
-                  {vals.map((x, i) => {
-                    const gps = isGps ? parseSubLoc(columns[i]) : null;
-                    return (
-                      <td key={i} className={`px-2 py-1 ${allSame ? '' : 'font-semibold text-sky-900'}`}>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={isGps ? 'font-mono text-[11px] select-all' : ''}>{x || '—'}</span>
-                          {gps && <CopyBtn text={`${gps.lat}, ${gps.lng}`} label="lat,lng" />}
-                        </div>
-                      </td>
-                    );
-                  })}
+                  {vals.map((x, i) => (
+                    <td key={i} className={`px-2 py-1 ${allSame ? '' : 'font-semibold text-sky-900'}`}>
+                      <span className={isGps ? 'font-mono text-[11px] select-all' : ''}>{x || '—'}</span>
+                    </td>
+                  ))}
                 </tr>
               );
             })}

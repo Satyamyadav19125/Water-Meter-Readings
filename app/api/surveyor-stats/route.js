@@ -4,7 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { excludeDisabled } from '@/lib/filter';
 import { getSettings } from '@/lib/db';
 import { getField } from '@/lib/fieldMap';
-import { readingDate, startOfWeek, endOfWeek } from '@/lib/weekly';
+import { startOfWeek, endOfWeek } from '@/lib/weekly';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,10 +51,16 @@ export async function GET() {
       if (serial) st.meters.add(lc(serial));
       const village = getField(s, 'village');
       if (village) st.villages.add(lc(village));
-      const rt = readingDate(s).getTime();
-      if (!Number.isNaN(rt) && rt >= periodStart.getTime() && rt < periodEnd.getTime()) st.thisPeriod += 1;
+      // "this period" counts readings this person actually SUBMITTED in the
+      // window (upload time) — matching "last active". Counting by the form's
+      // date field would drop readings a surveyor uploaded now but dated to an
+      // earlier day (surveyors frequently back-date), which read as "0 this week"
+      // even though the work was done this week.
       const up = new Date(s._submission_time).getTime();
-      if (!Number.isNaN(up) && up > st.lastTs) st.lastTs = up;
+      if (!Number.isNaN(up)) {
+        if (up > st.lastTs) st.lastTs = up;
+        if (up >= periodStart.getTime() && up < periodEnd.getTime()) st.thisPeriod += 1;
+      }
     }
 
     const surveyors = Object.entries(stats)
