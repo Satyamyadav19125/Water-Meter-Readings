@@ -234,7 +234,7 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
     // pink/red behind the comparison table, photos and editor.
     <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4 bg-white">
       {isSameDayDup && (
-        <div className="bg-sky-50 border border-sky-100 rounded-lg p-3 text-slate-700 text-sm">
+        <div className="bg-white border border-slate-200 rounded-lg p-3 text-slate-700 text-sm">
           <span className="font-semibold text-slate-800">Read {others.length + 1} times on this date.</span> All {others.length + 1} forms are shown below — decide which is correct, then edit the value or mark the mistaken one(s) as dead. A dead one stays here for reference and the kept one moves to Clean.
         </div>
       )}
@@ -350,7 +350,7 @@ function DuplicateCompare({ current, others, canVerify }) {
   return (
     <div className="space-y-2">
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Comparison — {columns.length} readings (earliest first), differences highlighted</div>
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-[11px] text-slate-600">
+      <div className="bg-white border border-slate-200 rounded-lg p-2 text-[11px] text-slate-600">
         Two reads on the same day <b>at different times can both be correct</b>. Use <b>✓ Correct</b> on each to keep them, <b>✎ Edit</b> to fix a value, or <b>Mistake</b> to delete a genuine duplicate.
       </div>
       <div className="overflow-x-auto">
@@ -373,10 +373,10 @@ function DuplicateCompare({ current, others, canVerify }) {
               const allSame = vals.every((x) => x === vals[0]);
               const isGps = key === 'location';
               return (
-                <tr key={key} className={`border-t border-slate-100 ${allSame ? '' : 'bg-sky-50'}`}>
+                <tr key={key} className="border-t border-slate-100">
                   <td className="px-2 py-1 text-slate-500 whitespace-nowrap align-top">{label}</td>
                   {vals.map((x, i) => (
-                    <td key={i} className={`px-2 py-1 ${allSame ? '' : 'font-semibold text-sky-900'}`}>
+                    <td key={i} className={`px-2 py-1 ${allSame ? 'text-slate-700' : 'font-semibold text-slate-900'}`}>
                       <span className={isGps ? 'font-mono text-[11px] select-all' : ''}>{x || '—'}</span>
                     </td>
                   ))}
@@ -732,21 +732,22 @@ function FullFormEditor({ submission, defaultOpen = false, onClose }) {
 function SubmissionPanel({ label, submission, highlight }) {
   const [lb, setLb] = useState(null);
   const photos = uniquePhotos(submission._attachments);
+  const loc = parseFullLoc(submission);
   const borderClass = highlight === 'red'
     ? 'border-red-300 bg-red-50'
     : highlight === 'emerald'
       ? 'border-emerald-300 bg-emerald-50'
-      : 'border-slate-200 bg-slate-50';
+      : 'border-slate-200 bg-white';
 
   return (
     <div className={`rounded-lg border ${borderClass} p-3`}>
-      <div className="text-xs uppercase tracking-wide text-slate-600 font-semibold mb-2">{label}</div>
-      <div className="text-xs text-slate-500 mb-2">
+      <div className="text-xs uppercase tracking-wide text-slate-600 font-semibold mb-0.5">{label}</div>
+      <div className="text-xs text-slate-400 mb-3">
         #{submission._id} · {new Date(submission._submission_time).toLocaleString()}
       </div>
-      {/* Key facts, always shown (start/end time included) so nothing important
-          is buried in the raw field list below. */}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-3 bg-white/60 rounded-lg border border-slate-200 p-2">
+
+      {/* A small, left-aligned info card with the key facts. */}
+      <div className="sm:max-w-md grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-3 bg-slate-50 rounded-lg border border-slate-200 p-2.5">
         <Fact k="Date" v={getField(submission, 'date')} />
         <Fact k="Reading" v={getField(submission, 'endReading') ?? getField(submission, 'reading')} strong />
         <Fact k="Start time" v={fmtTime(getField(submission, 'startTime'))} />
@@ -756,42 +757,46 @@ function SubmissionPanel({ label, submission, highlight }) {
         {getField(submission, 'farm') && <Fact k="Farm ID" v={getField(submission, 'farm')} />}
         <Fact k="Meter ID" v={getField(submission, 'serial')} mono />
       </div>
-      {/* The raw Kobo field dump used to be shown here too, which repeated Date /
-          Reading / Surveyor. The Key-facts block above, the photo(s) and the
-          location map below already cover everything — the full raw record is
-          in the admin Kobo View tab — so it's no longer duplicated here. */}
-      {(() => {
-        const loc = parseFullLoc(submission);
-        if (!loc) return null;
-        return (
-          <div className="mb-3">
-            <div className="text-[11px] text-slate-500 mb-1">📍 Where this reading was taken</div>
-            <CoordsBlock loc={loc} />
-            <MiniMap lat={loc.lat} lng={loc.lng} label={getField(submission, 'serial') || 'Reading location'} />
-            <a target="_blank" rel="noreferrer"
-              href={`https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`}
-              className="inline-block mt-1.5 text-[11px] px-2.5 py-1 rounded-full bg-field-600 text-white font-medium hover:bg-field-700">
-              🧭 Directions
-            </a>
-          </div>
-        );
-      })()}
-      {photos.length > 0 && (
-        <div className={`grid ${photos.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-          {photos.slice(0, 2).map((a) => (
-            <figure key={a.uid || a.id || a.filename} className="m-0">
-              <button type="button" onClick={() => setLb(`/api/photo?url=${encodeURIComponent(a.download_url)}`)} className="block w-full">
-                <img
-                  src={`/api/photo?url=${encodeURIComponent(a.download_small_url || a.download_url)}`}
-                  alt={labelForPhoto(a)}
-                  className="w-full h-36 object-cover rounded border border-slate-200 cursor-zoom-in"
-                />
-              </button>
-              <figcaption className="text-[10px] text-slate-500 mt-1 text-center">{labelForPhoto(a)}</figcaption>
-            </figure>
-          ))}
+
+      {/* Lower half — photo(s) on the LEFT, the location map + coordinates on the
+          RIGHT, side by side (stacks on a narrow phone). */}
+      <div className="grid gap-3 sm:grid-cols-2 items-start">
+        <div className="space-y-2">
+          {photos.length > 0 ? (
+            photos.slice(0, 2).map((a) => (
+              <figure key={a.uid || a.id || a.filename} className="m-0">
+                <button type="button" onClick={() => setLb(`/api/photo?url=${encodeURIComponent(a.download_url)}`)} className="block w-full">
+                  <img
+                    src={`/api/photo?url=${encodeURIComponent(a.download_small_url || a.download_url)}`}
+                    alt={labelForPhoto(a)}
+                    className="w-full h-44 object-cover rounded-lg border border-slate-200 cursor-zoom-in"
+                  />
+                </button>
+                <figcaption className="text-[10px] text-slate-500 mt-1 text-center">{labelForPhoto(a)}</figcaption>
+              </figure>
+            ))
+          ) : (
+            <div className="h-44 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-xs text-slate-400">No photo</div>
+          )}
         </div>
-      )}
+
+        <div>
+          {loc ? (
+            <>
+              <div className="text-[11px] text-slate-500 mb-1">📍 Where this reading was taken</div>
+              <MiniMap lat={loc.lat} lng={loc.lng} label={getField(submission, 'serial') || 'Reading location'} />
+              <div className="mt-2"><CoordsBlock loc={loc} /></div>
+              <a target="_blank" rel="noreferrer"
+                href={`https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`}
+                className="inline-block text-[11px] px-2.5 py-1 rounded-full bg-field-600 text-white font-medium hover:bg-field-700">
+                🧭 Directions
+              </a>
+            </>
+          ) : (
+            <div className="h-44 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-xs text-slate-400">No location recorded</div>
+          )}
+        </div>
+      </div>
       {lb && <Lightbox src={lb} onClose={() => setLb(null)} label="Meter photo" />}
     </div>
   );

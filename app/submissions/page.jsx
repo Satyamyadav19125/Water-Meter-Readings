@@ -72,7 +72,8 @@ export default async function SubmissionsPage({ searchParams }) {
   //                 So Raw and All have the same count; Raw is always the biggest
   //                 tab and is >= Clean.
   //  • Red flags  — readings the checks flagged
-  //  • Duplicate  — the same pipe read 2+ times on one date (incl. resolved)
+  //  • Duplicate  — the same meter read 2+ times on one date, ANY value (incl.
+  //                 resolved) — so you can review every twice-a-day form manually
   //  • Dead       — readings an admin marked as a mistake
   //  • Corrected  — readings an admin edited/corrected
   //  • Clean      — live, not-flagged readings (your fixes land here)
@@ -134,7 +135,7 @@ export default async function SubmissionsPage({ searchParams }) {
     }
     sections = [
       { key: 'flagged', label: '🚩 Red flags', items: b.flagged },
-      { key: 'duplicate', label: '👯 Duplicate', items: b.duplicate },
+      { key: 'duplicate', label: '👯 Read twice in a day', items: b.duplicate },
       { key: 'dead', label: '🗑️ Dead', items: b.dead },
       { key: 'corrected', label: '✎ Corrected', items: b.corrected },
       { key: 'clean', label: '✨ Clean', items: b.clean },
@@ -177,7 +178,7 @@ export default async function SubmissionsPage({ searchParams }) {
                 <FlagChip name="all" current={flagFilter} sp={sp}>All ({totalCount})</FlagChip>
                 <FlagChip name="raw" current={flagFilter} sp={sp}>🗂️ Raw ({rawCount})</FlagChip>
                 <FlagChip name="flagged" current={flagFilter} sp={sp} danger>🚩 Red flags ({redCount})</FlagChip>
-                {duplicateCount > 0 && <FlagChip name="duplicates" current={flagFilter} sp={sp}>👯 Duplicate ({duplicateCount})</FlagChip>}
+                {duplicateCount > 0 && <FlagChip name="duplicates" current={flagFilter} sp={sp}>👯 Read twice/day ({duplicateCount})</FlagChip>}
                 <FlagChip name="dead" current={flagFilter} sp={sp}>🗑️ Dead ({deadCount})</FlagChip>
                 <FlagChip name="corrected" current={flagFilter} sp={sp}>✎ Corrected ({correctedCount})</FlagChip>
                 <FlagChip name="clean" current={flagFilter} sp={sp}>✨ Clean ({cleanCount})</FlagChip>
@@ -192,7 +193,7 @@ export default async function SubmissionsPage({ searchParams }) {
           </div>
           {isAdmin && (
             <p className="text-[11px] text-slate-500 -mt-1">
-              <b>All ({totalCount})</b> and <b>Raw ({rawCount})</b> are the whole dataset — every submission — so they’re the biggest tabs. Raw just shows each form <i>exactly as Kobo stored it</i> (no edits). <b>Clean</b>, <b>Corrected</b>, <b>Dead</b> and <b>Duplicate</b> are smaller subsets of it.
+              <b>All ({totalCount})</b> and <b>Raw ({rawCount})</b> are the whole dataset — every submission — so they’re the biggest tabs. Raw just shows each form <i>exactly as Kobo stored it</i> (no edits). <b>Clean</b>, <b>Corrected</b>, <b>Dead</b> and <b>Read twice/day</b> are smaller subsets of it.
             </p>
           )}
         </>
