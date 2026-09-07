@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchSubmissions } from '@/lib/kobo';
+import { fetchSubmissions, fetchFormMaster } from '@/lib/kobo';
 import { getCurrentUser } from '@/lib/auth';
 import { getSettings, getDisabledRegistry } from '@/lib/db';
 import { getField, parseReading } from '@/lib/fieldMap';
@@ -25,8 +25,11 @@ export async function GET(request) {
   let submissions = [];
   let settings;
   let reg = { farms: [], pipes: [] };
+  let master = { ok: false, pipes: [], villages: [] };
   try {
-    [submissions, settings, reg] = await Promise.all([fetchSubmissions(), getSettings(), getDisabledRegistry()]);
+    [submissions, settings, reg, master] = await Promise.all([
+      fetchSubmissions(), getSettings(), getDisabledRegistry(), fetchFormMaster().catch(() => ({ ok: false, pipes: [], villages: [] })),
+    ]);
   } catch (e) {
     return NextResponse.json({ error: e.message, villages: [] }, { status: 200 });
   }
@@ -95,6 +98,28 @@ export async function GET(request) {
       m.lastReading = Number.isNaN(r) ? null : r;
       m.lastDate = s._submission_time;
       m.lastSurveyor = getField(s, 'surveyor') || null;
+    }
+  }
+
+  // Meters that EXIST in the Kobo form definition but have never been read yet
+  // must still show up as "pending" — otherwise they silently vanish from the
+  // tracker and the total here under-counts vs the overview (which does count
+  // the full meter universe). Add each such meter once, skipping disabled ones,
+  // and (for a field assistant) only inside their assigned villages.
+  if (master.ok && Array.isArray(master.pipes)) {
+    // Normalise serials (drop whitespace/zero-width + lowercase) so a never-read
+    // form meter isn't added again when a submission already covers it under a
+    // slightly dirty serial — keeps this total consistent with the overview.
+    const normS = (x) => String(x ?? '').replace(new RegExp('[\\s\\u200B\\u200C\\u200D\\uFEFF]', 'g'), '').toLowerCase();
+    const seenSerials = new Set(Object.values(meters).map((m) => normS(m.serial)));
+    for (const pm of master.pipes) {
+      const serial = pm.serial;
+      if (!serial || seenSerials.has(normS(serial))) continue;
+      if (offMeters.has(lc(serial)) || offFarms.has(lc(pm.farm))) continue;
+      const village = pm.village || 'Unknown';
+      if (allowed && !allowed.has(String(village).trim().toLowerCase())) continue;
+      seenSerials.add(normS(serial));
+      meters[`${village}|||${serial}`] = { serial, village, countThisPeriod: 0, lastReading: null, lastDate: null, lastSurveyor: null, lastTs: 0 };
     }
   }
 

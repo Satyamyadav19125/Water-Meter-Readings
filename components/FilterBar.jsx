@@ -29,6 +29,7 @@ export default function FilterBar() {
   const village = sp.get('village') || '';
   const farm = sp.get('farm') || '';
   const meter = sp.get('meter') || '';
+  const meterq = sp.get('meterq') || '';
   const surveyor = sp.get('surveyor') || '';
   const from = sp.get('from') || '';
   const to = sp.get('to') || '';
@@ -37,8 +38,10 @@ export default function FilterBar() {
 
   const [uidText, setUidText] = useState(uid);
   useEffect(() => { setUidText(uid); }, [uid]);
+  const [meterqText, setMeterqText] = useState(meterq);
+  useEffect(() => { setMeterqText(meterq); }, [meterq]);
 
-  const activeCount = [village, farm, meter, surveyor, from, to, uid].filter(Boolean).length;
+  const activeCount = [village, farm, meter, meterq, surveyor, from, to, uid].filter(Boolean).length;
 
   useEffect(() => {
     let alive = true;
@@ -142,6 +145,15 @@ export default function FilterBar() {
               <option value="">All meters</option>
               {availableMeters.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
+          </Field>
+          <Field label="Search meter serial (type)">
+            <input
+              value={meterqText}
+              onChange={(e) => setMeterqText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') update('meterq', meterqText.trim()); }}
+              onBlur={() => { if (meterqText.trim() !== meterq) update('meterq', meterqText.trim()); }}
+              placeholder="e.g. WM100240328691 or part of it"
+              className="filter-input font-mono" />
           </Field>
           <Field label="From date"><input type="date" value={from} onChange={(e) => update('from', e.target.value)} className="filter-input" /></Field>
           <Field label="To date"><input type="date" value={to} onChange={(e) => update('to', e.target.value)} className="filter-input" /></Field>

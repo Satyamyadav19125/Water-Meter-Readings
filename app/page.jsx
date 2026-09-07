@@ -125,16 +125,20 @@ export default async function HomePage() {
   // Coverage denominator: EVERY meter from the form definition (surveyors see
   // only their villages), so "done" is measured out of all meters — including
   // meters that have never been read at all.
-  let metersTotal = meters.filter((m) => !isOffMeter(m.serial)).length;
+  // Normalise a serial so a stray/hidden space or case difference on a typed Kobo
+  // serial can't count one physical meter twice (dirty submission serial + clean
+  // form-definition serial). Same rule the Submissions meter filter uses.
+  const normS = (x) => String(x ?? '').replace(new RegExp('[\\s\\u200B\\u200C\\u200D\\uFEFF]', 'g'), '').toLowerCase();
+  let metersTotal = new Set(meters.filter((m) => !isOffMeter(m.serial)).map((m) => normS(m.serial))).size;
   if (master.ok && master.pipes.length > 0) {
     const allowedV = !canViewAdmin
       ? new Set((currentUser.villages || []).map((v) => String(v).trim().toLowerCase()))
       : null;
-    const serialSet = new Set(meters.filter((m) => !isOffMeter(m.serial)).map((m) => m.serial));
+    const serialSet = new Set(meters.filter((m) => !isOffMeter(m.serial)).map((m) => normS(m.serial)));
     for (const pm of master.pipes) {
       if (allowedV && (!pm.village || !allowedV.has(String(pm.village).trim().toLowerCase()))) continue;
       if (offMetersO.has(lcx(pm.serial)) || offFarmsO.has(lcx(pm.farm))) continue;
-      serialSet.add(pm.serial);
+      serialSet.add(normS(pm.serial));
     }
     metersTotal = serialSet.size;
   }
