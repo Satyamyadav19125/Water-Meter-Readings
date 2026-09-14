@@ -148,30 +148,38 @@ export default function MeterStatusTable({ week = 'this', date = '' }) {
                 ? buildPrefillUrl(data.formUploadUrl, { village: v.village, meter: m.serial, name: data.surveyorName })
                 : null;
               return (
-                <li key={m.serial} className={`px-4 py-2.5 flex items-center gap-3 ${st.row}`}>
-                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.dot}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-mono text-sm truncate">{m.serial}</div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      {m.lastDate
-                        ? <>last: {m.lastReading ?? '—'} · {new Date(m.lastDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}{m.lastSurveyor ? ` · ${m.lastSurveyor}` : ''}</>
-                        : 'no readings yet'}
+                // Stacks on a phone (serial on its own full-width line, actions
+                // below) and sits in one row from `sm:` up. On mobile the fixed
+                // button + chip columns used to squeeze the serial so much it was
+                // truncated to nothing — now the serial always shows in full.
+                <li key={m.serial} className={`px-4 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 ${st.row}`}>
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1 ${st.dot}`} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-sm break-all">{m.serial}</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        {m.lastDate
+                          ? <>last: {m.lastReading ?? '—'} · {new Date(m.lastDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}{m.lastSurveyor ? ` · ${m.lastSurveyor}` : ''}</>
+                          : 'no readings yet'}
+                      </div>
                     </div>
                   </div>
-                  {/* Take-reading button: fixed slot so the status chips below all
-                      line up in one column whether or not a button is present. */}
-                  <div className="shrink-0 w-28 flex justify-end">
-                    {takeUrl && m.status !== 'done' && (
-                      <a href={takeUrl} target="_blank" rel="noreferrer"
-                        title="Open the Kobo form with village, meter, your name and today's date already filled in"
-                        className="text-[11px] px-2.5 py-1 rounded-full bg-field-600 text-white font-medium hover:bg-field-700 whitespace-nowrap">
-                        ➕ Take reading
-                      </a>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0 w-24">
-                    <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border font-medium ${st.chip}`}>{st.label}</span>
-                    <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisPeriod, target)}/{target}</div>
+                  {/* Actions: below the serial on a phone (indented to line up with
+                      the serial text), inline on the right from `sm:` up. */}
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pl-[22px] sm:pl-0 shrink-0">
+                    <div className="w-28 flex sm:justify-end">
+                      {takeUrl && m.status !== 'done' && (
+                        <a href={takeUrl} target="_blank" rel="noreferrer"
+                          title="Open the Kobo form with village, meter, your name and today's date already filled in"
+                          className="text-[11px] px-2.5 py-1 rounded-full bg-field-600 text-white font-medium hover:bg-field-700 whitespace-nowrap">
+                          ➕ Take reading
+                        </a>
+                      )}
+                    </div>
+                    <div className="text-right w-24">
+                      <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border font-medium ${st.chip}`}>{st.label}</span>
+                      <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{Math.min(m.countThisPeriod, target)}/{target}</div>
+                    </div>
                   </div>
                 </li>
               );

@@ -339,7 +339,7 @@ function SurveyorProgress({ stat, periodLabel }) {
           </span>
         )}
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Stat n={stat.total} label="total" />
         <Stat n={stat.thisPeriod} label={`this ${periodLabel}`} accent />
         <Stat n={stat.meters} label="meters" />
