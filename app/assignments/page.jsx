@@ -22,6 +22,7 @@ export default function AssignmentsPage() {
   const [pairings, setPairings] = useState({});
   const [stats, setStats] = useState({}); // surveyor name -> reading stats
   const [statsMeta, setStatsMeta] = useState(null);
+  const [villageProgress, setVillageProgress] = useState({}); // village(lower) -> {done,total}
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -37,12 +38,13 @@ export default function AssignmentsPage() {
   async function load() {
     setLoading(true);
     try {
-      const [aRes, uRes, sRes, vRes, stRes] = await Promise.all([
+      const [aRes, uRes, sRes, vRes, stRes, msRes] = await Promise.all([
         fetch('/api/assignments'),
         fetch('/api/auth/check'),
         fetch('/api/surveyors').catch(() => null),
         fetch('/api/villages').catch(() => null),
         fetch('/api/surveyor-stats').catch(() => null),
+        fetch('/api/meter-status').catch(() => null),
       ]);
       const aData = await parseJsonSafe(aRes);
       if (!aRes.ok) throw new Error(aData.error || 'Failed to load');
@@ -63,6 +65,16 @@ export default function AssignmentsPage() {
         for (const row of (st.surveyors || [])) byName[String(row.name).trim().toLowerCase()] = row;
         setStats(byName);
         setStatsMeta({ periodLabel: st.periodLabel || 'week' });
+      }
+      // Per-village meter progress (done / total this period) — used to show each
+      // person how many readings are done vs left across their assigned villages.
+      if (msRes && msRes.ok) {
+        const ms = await parseJsonSafe(msRes);
+        const byVillage = {};
+        for (const v of (ms.villages || [])) {
+          byVillage[String(v.village).trim().toLowerCase()] = { done: v.done || 0, total: v.total || 0 };
+        }
+        setVillageProgress(byVillage);
       }
       let list = aData.assignments || [];
       list = list.map((a) => {
@@ -264,7 +276,11 @@ export default function AssignmentsPage() {
                 )}
               </div>
 
-              <SurveyorProgress stat={stats[String(person.person || '').trim().toLowerCase()]} periodLabel={statsMeta?.periodLabel || 'week'} />
+              <SurveyorProgress
+                stat={stats[String(person.person || '').trim().toLowerCase()]}
+                periodLabel={statsMeta?.periodLabel || 'week'}
+                assignment={villageProgressFor(person.villages, villageProgress)}
+              />
             </div>
           );
         })}
@@ -319,32 +335,62 @@ function relDays(iso) {
   if (d === 1) return 'yesterday';
   return `${d} days ago`;
 }
-function SurveyorProgress({ stat, periodLabel }) {
-  if (!stat) {
-    return (
-      <div className="px-3 sm:px-4 py-2.5 border-t border-slate-100 bg-slate-50/60">
-        <div className="text-[11px] text-slate-400">No readings recorded yet for this person.</div>
-      </div>
-    );
+// Sum the done/total meter counts across a person's assigned villages so we can
+// show how much of their assignment is finished vs still left this period.
+function villageProgressFor(villages, villageProgress) {
+  let done = 0, total = 0;
+  for (const v of (villages || [])) {
+    const p = (villageProgress || {})[String(v).trim().toLowerCase()];
+    if (p) { done += p.done || 0; total += p.total || 0; }
   }
-  const last = relDays(stat.lastActive);
-  const stale = stat.lastActive && (Date.now() - new Date(stat.lastActive).getTime()) > 10 * 86400000;
+  return { done, total };
+}
+function SurveyorProgress({ stat, periodLabel, assignment }) {
+  const last = stat ? relDays(stat.lastActive) : null;
+  const stale = stat?.lastActive && (Date.now() - new Date(stat.lastActive).getTime()) > 10 * 86400000;
+  const hasAssignment = assignment && assignment.total > 0;
+  const left = hasAssignment ? Math.max(0, assignment.total - assignment.done) : 0;
+  const pct = hasAssignment ? Math.round((assignment.done / assignment.total) * 100) : 0;
   return (
-    <div className="px-3 sm:px-4 py-2.5 border-t border-slate-100 bg-slate-50/60">
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">📊 Readings taken</span>
-        {last && (
-          <span className={`text-[11px] ${stale ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
-            {stale ? '⚠️ ' : ''}last active {last}
-          </span>
-        )}
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <Stat n={stat.total} label="total" />
-        <Stat n={stat.thisPeriod} label={`this ${periodLabel}`} accent />
-        <Stat n={stat.meters} label="meters" />
-        <Stat n={stat.villages} label="villages" />
-      </div>
+    <div className="px-3 sm:px-4 py-2.5 border-t border-slate-100 bg-slate-50/60 space-y-2.5">
+      {/* Assignment completion across this person's villages — done vs left. */}
+      {hasAssignment && (
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">📋 Assignment this {periodLabel}</span>
+            <span className="text-[11px] text-slate-500 tabular-nums">{assignment.done}/{assignment.total} meters · {pct}%</span>
+          </div>
+          <div className="h-2 bg-white rounded-full overflow-hidden border border-slate-200">
+            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex gap-3 mt-1 text-[11px]">
+            <span className="text-emerald-700 font-medium">✓ {assignment.done} done</span>
+            <span className={left > 0 ? 'text-rose-600 font-medium' : 'text-slate-400'}>⏳ {left} left</span>
+          </div>
+        </div>
+      )}
+
+      {/* Readings this person has actually taken. */}
+      {stat ? (
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">📊 Readings taken</span>
+            {last && (
+              <span className={`text-[11px] ${stale ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
+                {stale ? '⚠️ ' : ''}last active {last}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <Stat n={stat.total} label="total" />
+            <Stat n={stat.thisPeriod} label={`this ${periodLabel}`} accent />
+            <Stat n={stat.meters} label="meters" />
+            <Stat n={stat.villages} label="villages" />
+          </div>
+        </div>
+      ) : (
+        !hasAssignment && <div className="text-[11px] text-slate-400">No readings recorded yet for this person.</div>
+      )}
     </div>
   );
 }

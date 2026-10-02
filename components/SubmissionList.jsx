@@ -759,24 +759,26 @@ function SubmissionPanel({ label, submission, highlight }) {
       </div>
 
       {/* Lower half — photo(s) on the LEFT, the location map + coordinates on the
-          RIGHT, side by side (stacks on a narrow phone). */}
-      <div className="grid gap-3 sm:grid-cols-2 items-start">
-        <div className="space-y-2">
+          RIGHT, side by side (stacks on a narrow phone). The grid STRETCHES both
+          columns to equal height, so the photo(s) grow to fill the whole area
+          beside the map instead of leaving a big blank white gap underneath. */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-2">
           {photos.length > 0 ? (
             photos.slice(0, 2).map((a) => (
-              <figure key={a.uid || a.id || a.filename} className="m-0">
-                <button type="button" onClick={() => setLb(`/api/photo?url=${encodeURIComponent(a.download_url)}`)} className="block w-full">
+              <figure key={a.uid || a.id || a.filename} className="m-0 flex-1 flex flex-col min-h-0">
+                <button type="button" onClick={() => setLb(`/api/photo?url=${encodeURIComponent(a.download_url)}`)} className="block w-full flex-1 min-h-0">
                   <img
                     src={`/api/photo?url=${encodeURIComponent(a.download_small_url || a.download_url)}`}
                     alt={labelForPhoto(a)}
-                    className="w-full h-44 object-cover rounded-lg border border-slate-200 cursor-zoom-in"
+                    className="w-full h-full object-cover rounded-lg border border-slate-200 cursor-zoom-in min-h-[16rem] sm:min-h-0"
                   />
                 </button>
-                <figcaption className="text-[10px] text-slate-500 mt-1 text-center">{labelForPhoto(a)}</figcaption>
+                <figcaption className="text-[10px] text-slate-500 mt-1 text-center shrink-0">{labelForPhoto(a)}</figcaption>
               </figure>
             ))
           ) : (
-            <div className="h-44 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-xs text-slate-400">No photo</div>
+            <div className="flex-1 min-h-[16rem] rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-xs text-slate-400">No photo</div>
           )}
         </div>
 
