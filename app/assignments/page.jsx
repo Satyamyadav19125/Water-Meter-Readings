@@ -346,50 +346,70 @@ function villageProgressFor(villages, villageProgress) {
   return { done, total };
 }
 function SurveyorProgress({ stat, periodLabel, assignment }) {
+  // Collapsed by default: the card just shows the "📋 Assignment this week" tab
+  // with a compact done/left summary. Tap it to expand the full bar + the
+  // readings-taken stats, so the roster stays short and scannable.
+  const [open, setOpen] = useState(false);
   const last = stat ? relDays(stat.lastActive) : null;
   const stale = stat?.lastActive && (Date.now() - new Date(stat.lastActive).getTime()) > 10 * 86400000;
   const hasAssignment = assignment && assignment.total > 0;
   const left = hasAssignment ? Math.max(0, assignment.total - assignment.done) : 0;
   const pct = hasAssignment ? Math.round((assignment.done / assignment.total) * 100) : 0;
-  return (
-    <div className="px-3 sm:px-4 py-2.5 border-t border-slate-100 bg-slate-50/60 space-y-2.5">
-      {/* Assignment completion across this person's villages — done vs left. */}
-      {hasAssignment && (
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">📋 Assignment this {periodLabel}</span>
-            <span className="text-[11px] text-slate-500 tabular-nums">{assignment.done}/{assignment.total} meters · {pct}%</span>
-          </div>
-          <div className="h-2 bg-white rounded-full overflow-hidden border border-slate-200">
-            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="flex gap-3 mt-1 text-[11px]">
-            <span className="text-emerald-700 font-medium">✓ {assignment.done} done</span>
-            <span className={left > 0 ? 'text-rose-600 font-medium' : 'text-slate-400'}>⏳ {left} left</span>
-          </div>
-        </div>
-      )}
 
-      {/* Readings this person has actually taken. */}
-      {stat ? (
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1.5">
-            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">📊 Readings taken</span>
-            {last && (
-              <span className={`text-[11px] ${stale ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
-                {stale ? '⚠️ ' : ''}last active {last}
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <Stat n={stat.total} label="total" />
-            <Stat n={stat.thisPeriod} label={`this ${periodLabel}`} accent />
-            <Stat n={stat.meters} label="meters" />
-            <Stat n={stat.villages} label="villages" />
-          </div>
+  return (
+    <div className="border-t border-slate-100 bg-slate-50/60">
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        className="w-full px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-slate-100/70 text-left">
+        <span className="text-[11px] uppercase tracking-wide text-slate-500 font-medium">📋 Assignment this {periodLabel}</span>
+        <span className="flex items-center gap-2">
+          {hasAssignment
+            ? <span className="text-[11px] tabular-nums"><span className="text-emerald-700 font-semibold">✓ {assignment.done}</span> <span className="text-slate-400">·</span> <span className={left > 0 ? 'text-rose-600 font-semibold' : 'text-slate-400'}>⏳ {left}</span></span>
+            : <span className="text-[11px] text-slate-400">no meters</span>}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
+        </span>
+      </button>
+
+      {open && (
+        <div className="px-3 sm:px-4 pb-3 space-y-2.5">
+          {/* Assignment completion across this person's villages — done vs left. */}
+          {hasAssignment && (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[11px] text-slate-500 tabular-nums">{assignment.done}/{assignment.total} meters done · {pct}%</span>
+              </div>
+              <div className="h-2 bg-white rounded-full overflow-hidden border border-slate-200">
+                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="flex gap-3 mt-1 text-[11px]">
+                <span className="text-emerald-700 font-medium">✓ {assignment.done} done</span>
+                <span className={left > 0 ? 'text-rose-600 font-medium' : 'text-slate-400'}>⏳ {left} left</span>
+              </div>
+            </div>
+          )}
+
+          {/* Readings this person has actually taken. */}
+          {stat ? (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">📊 Readings taken</span>
+                {last && (
+                  <span className={`text-[11px] ${stale ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
+                    {stale ? '⚠️ ' : ''}last active {last}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Stat n={stat.total} label="total" />
+                <Stat n={stat.thisPeriod} label={`this ${periodLabel}`} accent />
+                <Stat n={stat.meters} label="meters" />
+                <Stat n={stat.villages} label="villages" />
+              </div>
+            </div>
+          ) : (
+            !hasAssignment && <div className="text-[11px] text-slate-400">No readings recorded yet for this person.</div>
+          )}
         </div>
-      ) : (
-        !hasAssignment && <div className="text-[11px] text-slate-400">No readings recorded yet for this person.</div>
       )}
     </div>
   );
