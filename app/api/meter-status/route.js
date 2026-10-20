@@ -3,7 +3,7 @@ import { fetchSubmissions, fetchFormMaster } from '@/lib/kobo';
 import { getCurrentUser } from '@/lib/auth';
 import { getSettings, getDisabledRegistry } from '@/lib/db';
 import { getField, parseReading } from '@/lib/fieldMap';
-import { startOfWeek, endOfWeek, daysRemaining, readingDate } from '@/lib/weekly';
+import { startOfWeek, endOfWeek, readingDate } from '@/lib/weekly';
 
 export const dynamic = 'force-dynamic';
 

@@ -2,6 +2,7 @@ import './globals.css';
 import MobileNav from '@/components/MobileNav';
 import Footer from '@/components/Footer';
 import GuestGuard from '@/components/GuestGuard';
+import PageTransition from '@/components/PageTransition';
 import { getCurrentUser } from '@/lib/auth';
 import { getSettings } from '@/lib/db';
 
@@ -19,8 +20,9 @@ export const viewport = {
   interactiveWidget: 'resizes-content',
 };
 
-// Runs BEFORE paint so the saved theme applies without a white/black flash.
-const themeInit = `try{if(localStorage.getItem('wmd-theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}`;
+// Runs BEFORE paint so the saved theme (light / dark / liquid-glass) applies
+// without a white/black flash.
+const themeInit = `try{var t=localStorage.getItem('wmd-theme');if(t==='dark'){document.documentElement.classList.add('dark')}else if(t==='glass'){document.documentElement.classList.add('glass')}}catch(e){}`;
 
 export default async function RootLayout({ children }) {
   let user = null;
@@ -48,8 +50,11 @@ export default async function RootLayout({ children }) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body className="min-h-screen flex flex-col">
+        <div className="glass-bg" aria-hidden="true" />
         <MobileNav user={user} formUploadUrl={formUploadUrl} guestBrandName={guestBrandName} publicGeneric={publicGeneric} />
-        <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 pb-20">{children}</main>
+        <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 pb-20">
+          <PageTransition>{children}</PageTransition>
+        </main>
         {user?.role === 'guest' && <GuestGuard />}
         <Footer />
       </body>

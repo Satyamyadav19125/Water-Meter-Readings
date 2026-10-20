@@ -371,7 +371,7 @@ function SurveyorProgress({ stat, periodLabel, assignment }) {
       </button>
 
       {open && (
-        <div className="px-3 sm:px-4 pb-3 space-y-2.5">
+        <div className="px-3 sm:px-4 pb-3 space-y-2.5 pop-in">
           {/* Assignment completion across this person's villages — done vs left. */}
           {hasAssignment && (
             <div>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getField } from '@/lib/fieldMap';
-import { readingTime, readingInstant } from '@/lib/redflags';
+import { readingInstant } from '@/lib/redflags';
 import Lightbox from '@/components/Lightbox';
 import MiniMap from '@/components/MiniMap';
 
@@ -231,8 +231,9 @@ function SubmissionDetail({ submission, flag, isVerified, canVerify, busy, onTog
   return (
     // The expanded body is always a clean white panel — even when the collapsed
     // card header is tinted for a red flag — so the detail never looks washed in
-    // pink/red behind the comparison table, photos and editor.
-    <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4 bg-white">
+    // pink/red behind the comparison table, photos and editor. `pop-in` presents
+    // it with a soft iOS-style scale/fade when you tap the card open.
+    <div className="border-t border-slate-200/60 p-3 sm:p-4 space-y-4 bg-white pop-in">
       {isSameDayDup && (
         <div className="bg-white border border-slate-200 rounded-lg p-3 text-slate-700 text-sm">
           <span className="font-semibold text-slate-800">Read {others.length + 1} times on this date.</span> All {others.length + 1} forms are shown below — decide which is correct, then edit the value or mark the mistaken one(s) as dead. A dead one stays here for reference and the kept one moves to Clean.
@@ -835,14 +836,4 @@ function Fact({ k, v, mono, strong }) {
       <span className={`text-right ${mono ? 'font-mono' : ''} ${strong ? 'font-semibold' : ''} ${empty ? 'text-slate-300' : 'text-slate-900'}`}>{empty ? '—' : String(v)}</span>
     </div>
   );
-}
-
-function prettyKey(k) {
-  return k.replace(/^group_\d+\//, '').replace(/_/g, ' ');
-}
-
-function renderVal(v) {
-  if (v === null || v === undefined || v === '') return <em className="text-slate-400">empty</em>;
-  if (typeof v === 'object') return <code className="text-xs">{JSON.stringify(v)}</code>;
-  return String(v);
 }
