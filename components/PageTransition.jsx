@@ -16,8 +16,9 @@ export default function PageTransition({ children }) {
     prev.current = pathname;
     // Brief "leaving" state, then swap to the new content entering — reads as a
     // quick close/open, the way an iOS screen dismisses and the next presents.
+    // Kept short (60ms) so the switch feels instant and snappy, not sluggish.
     setStage('out');
-    const t = setTimeout(() => setStage('in'), 120);
+    const t = setTimeout(() => setStage('in'), 60);
     return () => clearTimeout(t);
   }, [pathname]);
 

@@ -134,19 +134,21 @@ header nav a:hover, .rounded-full:hover { transform: translateY(-1px) scale(1.03
 
 /* ---- iOS-style screen open / close transition ---- */
 @keyframes pageIn {
-  0%   { opacity: 0; transform: translateY(14px) scale(.985); filter: blur(2px); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  0%   { opacity: 0; transform: translateY(8px) scale(.994); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes pageOut {
   0%   { opacity: 1; transform: translateY(0) scale(1); }
-  100% { opacity: 0; transform: translateY(-8px) scale(.99); }
+  100% { opacity: 0; transform: translateY(-4px) scale(.997); }
 }
-.page-enter { animation: pageIn .42s cubic-bezier(.22,1,.36,1) both; }
-.page-leave { animation: pageOut .12s ease-in both; }
+/* Snappy iOS feel: a short, blur-free enter so it reads as fast and smooth
+   (blur animations stutter; GPU-friendly opacity+transform do not). */
+.page-enter { animation: pageIn .24s cubic-bezier(.22,1,.36,1) both; will-change: transform, opacity; }
+.page-leave { animation: pageOut .08s ease-in both; will-change: transform, opacity; }
 
 /* Elements that "present" (opening a detail / modal / lightbox) pop in softly. */
 @keyframes popIn {
-  0%   { opacity: 0; transform: scale(.94) translateY(8px); }
+  0%   { opacity: 0; transform: scale(.97) translateY(5px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
@@ -222,5 +224,5 @@ header nav a:hover, .rounded-full:hover { transform: translateY(-1px) scale(1.03
 }
 
 /* Reusable iOS "present" animation for panels/modals that open on tap. */
-.pop-in { animation: popIn .32s cubic-bezier(.22,1,.36,1) both; }
+.pop-in { animation: popIn .2s cubic-bezier(.22,1,.36,1) both; }
 @media (prefers-reduced-motion: reduce) { .pop-in { animation: none !important; } }
